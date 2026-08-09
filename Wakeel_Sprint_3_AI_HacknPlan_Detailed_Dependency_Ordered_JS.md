@@ -689,3 +689,113 @@ Test at minimum:
 - Cross-tenant retrieval tests fail safely.
 - Tool/API failures return controlled errors.
 - The complete chat flow can be exercised end-to-end with mocked external dependencies.
+
+# Final Folder Structure
+
+```text
+wakeelai-ai/
+├── docs/
+│   ├── AI_ARCHITECTURE.md
+│   └── REFERENCE_AI_STACK.md
+│
+├── src/
+│   ├── config/
+│   │   └── env.js
+│   ├── contracts/
+│   │   ├── ai-context.js
+│   │   ├── action.js
+│   │   ├── chat-response.js
+│   │   ├── skill.js
+│   │   ├── skill-result.js
+│   │   ├── source.js
+│   │   ├── tool.js
+│   │   └── index.js
+│   ├── controllers/
+│   ├── data-access/
+│   │   ├── database.js
+│   │   ├── knowledge-repository.js
+│   │   └── index.js
+│   ├── integrations/
+│   │   └── wakeel/
+│   │       ├── wakeel-client.js
+│   │       ├── employee-api.js
+│   │       ├── leave-api.js
+│   │       └── index.js
+│   ├── llm/
+│   │   ├── chat-model.js
+│   │   ├── embeddings.js
+│   │   ├── prompt-builder.js
+│   │   └── index.js
+│   ├── middleware/
+│   ├── orchestrator/
+│   ├── rag/
+│   ├── routes/
+│   ├── shared/
+│   │   └── logger.js
+│   ├── skills/
+│   ├── tools/
+│   ├── app.js
+│   └── server.js
+├── tests/
+├── .env.example
+├── package.json
+└── README.md
+```
+
+---
+
+# Definition of Done
+
+- [ ] JavaScript only.
+- [ ] Node.js + Express service runs independently.
+- [ ] No TypeScript files/configuration.
+- [ ] `/health` works.
+- [ ] Environment validation works.
+- [ ] Centralized Winston logging exists.
+- [ ] Centralized error handling exists.
+- [ ] Shared Zod contracts exist.
+- [ ] LLM abstraction exists.
+- [ ] Embedding abstraction exists.
+- [ ] MongoDB/vector infrastructure exists.
+- [ ] Knowledge ingestion works.
+- [ ] Vector retrieval works.
+- [ ] Company-policy isolation works.
+- [ ] Labor-law knowledge is available.
+- [ ] Skill registry exists.
+- [ ] Tool registry exists.
+- [ ] Wakeel API client exists.
+- [ ] Orchestrator exists.
+- [ ] `/chat` exists.
+- [ ] Required AI skills exist.
+- [ ] Leave-request tool exists.
+- [ ] Tests cover foundation, contracts, RAG and orchestration.
+- [ ] No BullMQ/Redis/Celery worker architecture was introduced.
+
+---
+
+# AI Coding Agent Rules
+
+Whenever an AI coding agent implements a task from this document:
+
+1. Read `docs/AI_ARCHITECTURE.md`.
+2. Read the exact task.
+3. Check its dependencies.
+4. Inspect existing code before creating files.
+5. Reuse existing infrastructure.
+6. Use JavaScript only.
+7. Use ES Modules.
+8. Use Zod for runtime validation.
+9. Follow the existing folder structure.
+10. Do not invent a new architecture.
+11. Do not introduce TypeScript.
+12. Do not introduce workers/BullMQ/Celery/Redis workers.
+13. Do not invent .NET backend endpoints.
+14. Reuse the centralized Wakeel API client.
+15. Keep routes/controllers thin.
+16. Put logic in the appropriate service/skill/tool/RAG/orchestrator module.
+17. Add tests for new behavior.
+18. Run relevant tests before completion.
+19. Update `docs/AI_ARCHITECTURE.md` only when architecture actually changes.
+20. Do not implement unrelated tasks unless they are direct dependencies.
+
+The objective is a predictable repository where every future AI coding agent knows exactly where code belongs and follows the same JavaScript architecture.
