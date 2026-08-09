@@ -1,4 +1,197 @@
-# Wakeel Sprint 3 — AI HacknPlan (JavaScript Version)
+# Wakeel Sprint 3 — AI HacknPlan
+## JavaScript Implementation Edition
+
+> **Mandatory:** The standalone AI service is **Node.js + Express + JavaScript (ES Modules)**.
+> TypeScript MUST NOT be introduced anywhere in this service.
+
+---
+
+# 0. Mandatory Technology Rules
+
+## Runtime
+
+- Node.js
+- Express
+- JavaScript
+- ES Modules (`"type": "module"`)
+- LangChain for AI orchestration/LLM integration
+- MongoDB/Mongoose for data access
+- Zod for runtime validation
+- Winston for centralized logging
+
+## TypeScript prohibition
+
+Do NOT create or introduce:
+
+- `.ts` / `.tsx` files
+- `tsconfig.json`
+- TypeScript `interface`
+- TypeScript `type`
+- Type annotations
+- TypeScript generics
+
+All code examples in this document MUST be JavaScript.
+
+## Contracts in JavaScript
+
+Use JavaScript objects/functions/classes and **Zod schemas** for runtime validation.
+
+Example:
+
+```js
+import { z } from "zod";
+
+export const AIContextSchema = z.object({
+  userId: z.string(),
+  companyId: z.string(),
+  role: z.string(),
+  conversationId: z.string(),
+});
+```
+
+A skill is a normal JavaScript object:
+
+```js
+const calculationSkill = {
+  name: "calculation",
+  description: "Performs deterministic HR calculations.",
+  inputSchema: calculationInputSchema,
+
+  async execute(input, context) {
+    // implementation
+  },
+};
+
+export default calculationSkill;
+```
+
+JSDoc may be used for editor hints/documentation when useful.
+
+---
+
+# 1. Architecture Rules
+
+The service is a standalone synchronous AI service.
+
+```text
+Wakeel Web/Mobile
+       |
+       v
+.NET Wakeel Backend
+       |
+       v
+Node.js + Express AI Service
+       |
+       +--> Orchestrator
+       +--> Skills
+       +--> Tools
+       +--> RAG
+       +--> LLM
+       +--> Data Access
+       +--> Wakeel API Integrations
+```
+
+The .NET backend remains responsible for authentication/authorization, normal application persistence, business-critical application logic, and existing business operations.
+
+The AI service is responsible for orchestration, skills, RAG, LLM interaction, AI-side deterministic calculations, document-generation logic, tools, and approved calls to Wakeel APIs.
+
+## No worker architecture
+
+Do NOT introduce:
+
+- BullMQ
+- Redis workers
+- Celery
+- RabbitMQ worker infrastructure
+- background worker infrastructure
+
+The initial implementation is synchronous HTTP request/response.
+
+---
+
+# 2. Permanent Architecture Document
+
+Create and maintain:
+
+```text
+docs/AI_ARCHITECTURE.md
+```
+
+This is the source of truth for the AI service architecture.
+
+It must document:
+
+- project purpose
+- technology stack
+- folder responsibilities
+- dependency direction
+- naming conventions
+- request/response conventions
+- error conventions
+- AI context
+- skill structure
+- tool structure
+- orchestrator responsibilities
+- RAG responsibilities
+- LLM abstraction
+- Wakeel API integration rules
+- data-access rules
+- configuration rules
+- testing rules
+- prohibited patterns
+- future module map
+
+Every future AI coding agent MUST read this file before changing the AI service.
+
+---
+
+# 3. Dependency Order
+
+```text
+3.1.1
+  |
+  v
+3.2.1
+  |
+  +----------------------+
+  |                      |
+  v                      v
+3.3.1                  3.3.2
+  |                      |
+  +----------+-----------+
+             |
+             v
+           3.4.1
+             |
+             v
+           3.5.1
+             |
+             v
+           3.5.2
+             |
+       +-----+------+
+       |            |
+       v            v
+     3.6.1        3.6.2
+       |            |
+       +-----+------+
+             |
+             v
+           3.7.1
+             |
+             v
+           3.8.1
+             |
+             v
+           3.9.1
+             |
+             v
+        AI Skills/Actions
+```
+
+Tasks explicitly marked **PARALLEL** may run together after their stated dependencies are complete.
+
+---
 
 ## Story 3.1 — AI Service Foundation & Gateway
 
