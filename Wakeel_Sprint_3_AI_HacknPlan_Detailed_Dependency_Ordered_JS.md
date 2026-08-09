@@ -151,7 +151,13 @@ Every future AI coding agent MUST read this file before changing the AI service.
 3.1.1
   |
   v
+3.1.2
+  |
+  v
 3.2.1
+  |
+  v
+3.2.2
   |
   +----------------------+
   |                      |
