@@ -1,6 +1,6 @@
 import { jest } from "@jest/globals";
 
-const mockGenerateEmbedding = jest.fn();
+const mockGenerateEmbeddings = jest.fn();
 const mockReplaceKnowledgeChunks = jest.fn();
 const mockInsertKnowledgeChunks = jest.fn();
 
@@ -11,7 +11,8 @@ jest.unstable_mockModule("../src/config/env.js", () => ({
 }));
 
 jest.unstable_mockModule("../src/llm/embeddings.js", () => ({
-  generateEmbedding: mockGenerateEmbedding,
+  generateEmbeddings: mockGenerateEmbeddings,
+  generateEmbedding: jest.fn(),
 }));
 
 jest.unstable_mockModule("../src/data-access/knowledge-repository.js", () => ({
@@ -37,18 +38,18 @@ describe("Knowledge ingestion service", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    mockGenerateEmbedding.mockImplementation(async (text) => [text.length, 1]);
+    mockGenerateEmbeddings.mockImplementation(async (chunks) => chunks.map(() => Array(1024).fill(1)));
     mockReplaceKnowledgeChunks.mockResolvedValue([]);
     mockInsertKnowledgeChunks.mockResolvedValue([]);
   });
 
-  it("chunks long content and generates one embedding for each chunk", async () => {
+  it("chunks long content and generates embeddings in batch", async () => {
     const result = await ingestKnowledgeDocument(basePayload);
 
     const storedInput = mockReplaceKnowledgeChunks.mock.calls[0][0];
 
     expect(storedInput.chunks.length).toBeGreaterThan(1);
-    expect(mockGenerateEmbedding).toHaveBeenCalledTimes(storedInput.chunks.length);
+    expect(mockGenerateEmbeddings).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       success: true,
       documentId: "document-uuid",
@@ -106,7 +107,7 @@ describe("Knowledge ingestion service", () => {
   });
 
   it("handles embedding failure without storing chunks", async () => {
-    mockGenerateEmbedding.mockRejectedValueOnce(new Error("provider unavailable"));
+    mockGenerateEmbeddings.mockRejectedValueOnce(new Error("provider unavailable"));
 
     await expect(ingestKnowledgeDocument(basePayload)).rejects.toMatchObject({
       status: 502,

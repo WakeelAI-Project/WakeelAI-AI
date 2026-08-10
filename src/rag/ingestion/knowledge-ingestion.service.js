@@ -1,6 +1,6 @@
 import { config } from "../../config/env.js";
 import { replaceKnowledgeChunks, insertKnowledgeChunks } from "../../data-access/knowledge-repository.js";
-import { generateEmbedding } from "../../llm/embeddings.js";
+import { generateEmbedding, generateEmbeddings } from "../../llm/embeddings.js";
 import { logger } from "../../shared/logger.js";
 import { chunkDocumentContent } from "./chunker.js";
 import { KnowledgeIngestionInputSchema } from "./knowledge-ingestion.schema.js";
@@ -61,13 +61,8 @@ const createKnowledgeChunkRecords = ({ input, chunks, embeddings, scope }) => (
 );
 
 const generateChunkEmbeddings = async (chunks) => {
-  const embeddings = [];
-
-  for (const chunk of chunks) {
-    embeddings.push(await generateEmbedding(chunk));
-  }
-
-  return embeddings;
+  // Use batch embedding processing from the abstraction
+  return generateEmbeddings(chunks);
 };
 
 /**
