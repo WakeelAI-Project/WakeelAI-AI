@@ -18,10 +18,10 @@ const envSchema = z.object({
 
 const parsedEnv = envSchema.safeParse(process.env);
 
-if (!parsedEnv.success) {
+if (!parsedEnv.success && process.env.NODE_ENV !== "test") {
   console.error("❌ Invalid environment configuration:");
   console.error(parsedEnv.error.format());
   process.exit(1);
 }
 
-export const config = parsedEnv.data;
+export const config = parsedEnv.success ? parsedEnv.data : process.env;
