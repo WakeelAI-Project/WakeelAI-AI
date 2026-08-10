@@ -29,7 +29,7 @@ export const validateRequest = (schemas) => {
           error: {
             code: "VALIDATION_ERROR",
             message: "Invalid request data",
-            details: error.errors
+            details: error.issues || error.errors
           }
         });
       }
