@@ -1,19 +1,15 @@
 import { jest } from "@jest/globals";
 
-const mockReadFile = jest.fn();
 const mockIsKnowledgeVersionIngested = jest.fn();
 const mockIngestKnowledgeDocument = jest.fn();
-
-jest.unstable_mockModule("node:fs/promises", () => ({
-  readFile: mockReadFile,
-}));
+const mockExtractTextFromPdfFile = jest.fn();
 
 jest.unstable_mockModule("../src/config/env.js", () => ({
   config: {
     INITIAL_LABOR_LAW_DOCUMENT_ID: "egyptian-labor-law",
     INITIAL_LABOR_LAW_TITLE: "Egyptian Labor Law",
     INITIAL_LABOR_LAW_VERSION: "initial",
-    INITIAL_LABOR_LAW_SOURCE_PATH: "knowledge/egyptian-labor-law.txt",
+    INITIAL_LABOR_LAW_SOURCE_PATH: "knowledge/egyptian-labor-law.pdf",
   },
 }));
 
@@ -25,13 +21,17 @@ jest.unstable_mockModule("../src/rag/ingestion/knowledge-ingestion.service.js", 
   ingestKnowledgeDocument: mockIngestKnowledgeDocument,
 }));
 
+jest.unstable_mockModule("../src/rag/ingestion/pdf-text-extractor.js", () => ({
+  extractTextFromPdfFile: mockExtractTextFromPdfFile,
+}));
+
 const { bootstrapInitialLaborLawKnowledge } = await import("../src/rag/ingestion/knowledge-bootstrap.service.js");
 
 describe("bootstrapInitialLaborLawKnowledge", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockIsKnowledgeVersionIngested.mockResolvedValue(false);
-    mockReadFile.mockResolvedValue("Egyptian labor law source text.");
+    mockExtractTextFromPdfFile.mockResolvedValue("Egyptian labor law source text.");
     mockIngestKnowledgeDocument.mockResolvedValue({
       success: true,
       documentId: "egyptian-labor-law",
@@ -50,11 +50,11 @@ describe("bootstrapInitialLaborLawKnowledge", () => {
       chunksCreated: 0,
       skipped: true,
     });
-    expect(mockReadFile).not.toHaveBeenCalled();
+    expect(mockExtractTextFromPdfFile).not.toHaveBeenCalled();
     expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
   });
 
-  it("ingests the configured labor-law source when the version is missing", async () => {
+  it("extracts text from the configured PDF and ingests it when the version is missing", async () => {
     const result = await bootstrapInitialLaborLawKnowledge();
 
     expect(result).toEqual({
@@ -62,6 +62,9 @@ describe("bootstrapInitialLaborLawKnowledge", () => {
       documentId: "egyptian-labor-law",
       chunksCreated: 1,
     });
+    expect(mockExtractTextFromPdfFile).toHaveBeenCalledWith(
+      expect.stringMatching(/knowledge[\\/]+egyptian-labor-law\.pdf$/)
+    );
     expect(mockIngestKnowledgeDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         companyId: "global",
@@ -75,5 +78,28 @@ describe("bootstrapInitialLaborLawKnowledge", () => {
       { replaceExisting: false }
     );
   });
-});
 
+  it("fails clearly when the configured PDF is missing", async () => {
+    const missingPdfError = new Error("missing file");
+    missingPdfError.code = "ENOENT";
+    mockExtractTextFromPdfFile.mockRejectedValueOnce(missingPdfError);
+
+    await expect(bootstrapInitialLaborLawKnowledge()).rejects.toMatchObject({
+      code: "KNOWLEDGE_BOOTSTRAP_FAILED",
+      status: 500,
+      message: expect.stringContaining("PDF source document was not found"),
+    });
+    expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
+  });
+
+  it("fails clearly when the PDF has no extractable text", async () => {
+    mockExtractTextFromPdfFile.mockResolvedValueOnce("   ");
+
+    await expect(bootstrapInitialLaborLawKnowledge()).rejects.toMatchObject({
+      code: "KNOWLEDGE_BOOTSTRAP_FAILED",
+      status: 500,
+      message: expect.stringContaining("OCR would be required"),
+    });
+    expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
+  });
+});

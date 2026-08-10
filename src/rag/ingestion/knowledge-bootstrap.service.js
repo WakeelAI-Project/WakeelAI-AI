@@ -1,9 +1,9 @@
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 import { config } from "../../config/env.js";
 import { isKnowledgeVersionIngested } from "../../data-access/knowledge-repository.js";
 import { logger } from "../../shared/logger.js";
 import { ingestKnowledgeDocument } from "./knowledge-ingestion.service.js";
+import { extractTextFromPdfFile } from "./pdf-text-extractor.js";
 
 const createBootstrapError = (message) => {
   const error = new Error(message);
@@ -14,6 +14,10 @@ const createBootstrapError = (message) => {
 
 const resolveSourcePath = (sourcePath) => (
   path.isAbsolute(sourcePath) ? sourcePath : path.resolve(process.cwd(), sourcePath)
+);
+
+const isPdfSourcePath = (sourcePath) => (
+  path.extname(sourcePath).toLowerCase() === ".pdf"
 );
 
 export const bootstrapInitialLaborLawKnowledge = async () => {
@@ -50,18 +54,29 @@ export const bootstrapInitialLaborLawKnowledge = async () => {
   }
 
   const sourcePath = resolveSourcePath(configuredSourcePath);
+  if (!isPdfSourcePath(sourcePath)) {
+    const message = `Initial labor-law source document must be a PDF file: ${sourcePath}`;
+    logger.error(`[KnowledgeBootstrap] ${message}`);
+    throw createBootstrapError(message);
+  }
+
   let content;
   try {
-    content = await readFile(sourcePath, "utf8");
+    content = await extractTextFromPdfFile(sourcePath);
   } catch (error) {
-    throw createBootstrapError(
-      `Unable to read initial labor-law source document: ${sourcePath}`
-    );
+    const message = error.code === "ENOENT"
+      ? `Initial labor-law PDF source document was not found: ${sourcePath}`
+      : `Unable to read or extract text from initial labor-law PDF source document: ${sourcePath}`;
+
+    logger.error(`[KnowledgeBootstrap] ${message}`);
+    throw createBootstrapError(message);
   }
 
   if (!content.trim()) {
+    const message = `Initial labor-law PDF contains no extractable text; OCR would be required for a scanned or image-only PDF: ${sourcePath}`;
+    logger.error(`[KnowledgeBootstrap] ${message}`);
     throw createBootstrapError(
-      `Initial labor-law source document is empty: ${sourcePath}`
+      message
     );
   }
 
