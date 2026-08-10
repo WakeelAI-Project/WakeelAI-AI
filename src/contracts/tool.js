@@ -1,16 +1,18 @@
+import { z } from "zod";
+
+export const ToolSchema = z.object({
+  name: z.string().min(1, "name is required"),
+  description: z.string().min(1, "description is required"),
+  inputSchema: z.custom((val) => val && typeof val.parse === "function", "inputSchema must be a valid Zod schema"),
+  execute: z.custom((val) => typeof val === "function", "execute must be a function"),
+});
+
 /**
  * Validation helper for AI Tool objects.
- * A tool must provide name, description, inputSchema, and an execute function.
  * 
  * @param {unknown} tool 
  * @returns {boolean}
  */
 export function isAITool(tool) {
-  return Boolean(
-    tool &&
-    typeof tool.name === "string" &&
-    typeof tool.description === "string" &&
-    tool.inputSchema &&
-    typeof tool.execute === "function"
-  );
+  return ToolSchema.safeParse(tool).success;
 }

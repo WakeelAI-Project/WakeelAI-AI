@@ -1,10 +1,18 @@
-import request from "supertest";
 import { jest } from "@jest/globals";
-import app from "../src/app.js";
-import * as orchestratorService from "../src/orchestrator/orchestrator.service.js";
 
-// We do not mock orchestrator.service.js because it is currently just a stateless stub,
-// and Jest ESM mocking is complex. We will just test against the real stub.
+// We mock orchestrator.service.js because it now contains real LangChain/LLM logic
+jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
+  handleChat: jest.fn().mockResolvedValue({
+    conversationId: "conv-123",
+    message: "Mocked AI response.",
+    type: "text",
+    sources: [],
+    actions: []
+  })
+}));
+
+const request = (await import("supertest")).default;
+const app = (await import("../src/app.js")).default;
 
 describe("POST /api/ai/chat", () => {
   beforeEach(() => {
@@ -24,7 +32,7 @@ describe("POST /api/ai/chat", () => {
   it("should return 200 and successful response for a valid request", async () => {
     const expectedResponse = {
       conversationId: "conv-123",
-      message: "AI orchestration is not implemented yet.",
+      message: "Mocked AI response.",
       type: "text",
       sources: [],
       actions: []
