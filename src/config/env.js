@@ -14,6 +14,14 @@ const envSchema = z.object({
   WAKEEL_API_BASE_URL: z.string().url("WAKEEL_API_BASE_URL must be a valid URL"),
   WAKEEL_INTERNAL_API_KEY: z.string().min(1, "WAKEEL_INTERNAL_API_KEY is required"),
   VECTOR_INDEX_NAME: z.string().min(1, "VECTOR_INDEX_NAME is required"),
+  KNOWLEDGE_CHUNK_SIZE: z.string()
+    .transform((val) => parseInt(val, 10))
+    .refine((val) => Number.isInteger(val) && val > 0, "KNOWLEDGE_CHUNK_SIZE must be a positive integer")
+    .default("1200"),
+  INITIAL_LABOR_LAW_DOCUMENT_ID: z.string().min(1, "INITIAL_LABOR_LAW_DOCUMENT_ID is required"),
+  INITIAL_LABOR_LAW_TITLE: z.string().min(1, "INITIAL_LABOR_LAW_TITLE is required"),
+  INITIAL_LABOR_LAW_VERSION: z.string().min(1, "INITIAL_LABOR_LAW_VERSION is required"),
+  INITIAL_LABOR_LAW_SOURCE_PATH: z.string().min(1, "INITIAL_LABOR_LAW_SOURCE_PATH is required"),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

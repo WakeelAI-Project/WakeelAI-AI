@@ -4,6 +4,7 @@ import helmet from "helmet";
 import { errorHandler } from "./middleware/error-handler.js";
 import healthRoutes from "./routes/health.routes.js";
 import aiRoutes from "./routes/ai.routes.js";
+import knowledgeRoutes from "./routes/knowledge.routes.js";
 
 const app = express();
 
@@ -15,6 +16,7 @@ app.use(express.json());
 // Routes
 app.use(healthRoutes); // keep health at root
 app.use("/api/ai", aiRoutes);
+app.use("/api/knowledge", knowledgeRoutes);
 
 // Global Error Handler
 app.use(errorHandler);
