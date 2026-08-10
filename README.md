@@ -5,5 +5,5 @@ Story 3.1
 └── 3.1.2 AI Chat Gateway   ✅ DONE
 
 Story 3.2
-├── 3.2.1 Orchestrator      ❌ NOT DONE  ← NEXT
-└── 3.2.2 Registry/Contracts 🟡 PARTIAL
+├── 3.2.1 Orchestrator      ✅ DONE
+└── 3.2.2 Registry/Contracts ✅ DONE
