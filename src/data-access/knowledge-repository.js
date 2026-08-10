@@ -80,3 +80,55 @@ export const isKnowledgeVersionIngested = async ({
   return existingCount > 0;
 };
 
+/**
+ * Executes MongoDB Atlas Vector Search against the knowledge chunks collection.
+ *
+ * @param {Object} input
+ * @param {string} input.indexName
+ * @param {string} input.vectorPath
+ * @param {Array<number>} input.queryVector
+ * @param {Object} input.filter
+ * @param {number} input.limit
+ * @param {number} input.numCandidates
+ * @returns {Promise<Array<Object>>}
+ */
+export const searchKnowledgeChunksByVector = async ({
+  indexName,
+  vectorPath,
+  queryVector,
+  filter,
+  limit,
+  numCandidates,
+}) => {
+  const pipeline = [
+    {
+      $vectorSearch: {
+        index: indexName,
+        path: vectorPath,
+        queryVector,
+        numCandidates,
+        limit,
+        filter,
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        documentId: 1,
+        companyId: 1,
+        knowledgeType: 1,
+        scope: 1,
+        title: 1,
+        content: 1,
+        chunkIndex: 1,
+        knowledgeVersion: 1,
+        sourcePath: 1,
+        metadata: 1,
+        score: { $meta: "vectorSearchScore" },
+      },
+    },
+  ];
+
+  return KnowledgeChunk.aggregate(pipeline);
+};
+
