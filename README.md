@@ -18,4 +18,7 @@ Addetional task : Chat History  ✅ DONE
 Story 3.4
 ├── 3.4.1 EmployeeContextService  ✅ DONE
 └── 3.4.2 CompanyContextService   ✅ DONE
+
+Story 3.5
+└── 3.5.1 CalculationService   ✅ DONE
 ```
