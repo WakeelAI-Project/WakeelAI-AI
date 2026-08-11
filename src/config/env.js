@@ -14,6 +14,7 @@ const envSchema = z.object({
   EMBEDDING_MODEL: z.string().min(1, "EMBEDDING_MODEL is required"),
   WAKEEL_API_BASE_URL: z.string().url("WAKEEL_API_BASE_URL must be a valid URL"),
   WAKEEL_INTERNAL_API_KEY: z.string().min(1, "WAKEEL_INTERNAL_API_KEY is required"),
+  INTERNAL_SERVICE_KEY: z.string().min(1, "INTERNAL_SERVICE_KEY is required"),
   VECTOR_INDEX_NAME: z.string().min(1, "VECTOR_INDEX_NAME is required"),
   KNOWLEDGE_RETRIEVAL_TOP_K: z.string()
     .transform((val) => parseInt(val, 10))

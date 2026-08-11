@@ -11,6 +11,13 @@ jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
   })
 }));
 
+// We mock chat-history.service.js so unit tests don't try to connect to MongoDB
+jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
+  persistUserMessage: jest.fn().mockResolvedValue(),
+  persistAssistantMessage: jest.fn().mockResolvedValue(),
+  getHistory: jest.fn().mockResolvedValue({})
+}));
+
 const request = (await import("supertest")).default;
 const app = (await import("../src/app.js")).default;
 
@@ -21,13 +28,19 @@ describe("POST /api/ai/chat", () => {
 
   const validPayload = {
     message: "How many leave days do I have left?",
-    conversationId: "conv-123",
-    context: {
-      userId: "user-456",
-      companyId: "company-789",
-      role: "employee"
-    }
+    conversationId: "conv-123"
   };
+
+  const validHeaders = {
+    "X-Wakeel-Internal-Key": "test-secret-key",
+    "X-Wakeel-User-Id": "user-456",
+    "X-Wakeel-Company-Id": "company-789",
+    "X-Wakeel-Role": "employee"
+  };
+
+  beforeAll(() => {
+    process.env.INTERNAL_SERVICE_KEY = "test-secret-key";
+  });
 
   it("should return 200 and successful response for a valid request", async () => {
     const expectedResponse = {
@@ -38,7 +51,7 @@ describe("POST /api/ai/chat", () => {
       actions: []
     };
 
-    const response = await request(app).post("/api/ai/chat").send(validPayload);
+    const response = await request(app).post("/api/ai/chat").set(validHeaders).send(validPayload);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(expectedResponse);
@@ -46,7 +59,7 @@ describe("POST /api/ai/chat", () => {
 
   it("should return 400 if message is missing", async () => {
     const payload = { ...validPayload, message: undefined };
-    const response = await request(app).post("/api/ai/chat").send(payload);
+    const response = await request(app).post("/api/ai/chat").set(validHeaders).send(payload);
 
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);
@@ -55,36 +68,18 @@ describe("POST /api/ai/chat", () => {
 
   it("should return 400 if conversationId is missing", async () => {
     const payload = { ...validPayload, conversationId: "" };
-    const response = await request(app).post("/api/ai/chat").send(payload);
+    const response = await request(app).post("/api/ai/chat").set(validHeaders).send(payload);
 
     expect(response.status).toBe(400);
   });
 
-  it("should return 400 if context.userId is missing", async () => {
-    const payload = { ...validPayload, context: { ...validPayload.context, userId: undefined } };
-    const response = await request(app).post("/api/ai/chat").send(payload);
-
-    expect(response.status).toBe(400);
+  it("should return 401 if internal key is missing", async () => {
+    const response = await request(app).post("/api/ai/chat").send(validPayload);
+    expect(response.status).toBe(401);
   });
 
-  it("should return 400 if context.companyId is missing", async () => {
-    const payload = { ...validPayload, context: { ...validPayload.context, companyId: undefined } };
-    const response = await request(app).post("/api/ai/chat").send(payload);
-
-    expect(response.status).toBe(400);
-  });
-
-  it("should return 400 if context.role is missing", async () => {
-    const payload = { ...validPayload, context: { ...validPayload.context, role: undefined } };
-    const response = await request(app).post("/api/ai/chat").send(payload);
-
-    expect(response.status).toBe(400);
-  });
-
-  it("should return 400 if context is missing entirely", async () => {
-    const payload = { message: "Hello", conversationId: "123" };
-    const response = await request(app).post("/api/ai/chat").send(payload);
-
+  it("should return 400 if identity headers are missing", async () => {
+    const response = await request(app).post("/api/ai/chat").set({ "X-Wakeel-Internal-Key": "test-secret-key" }).send(validPayload);
     expect(response.status).toBe(400);
   });
 });
