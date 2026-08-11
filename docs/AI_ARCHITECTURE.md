@@ -109,6 +109,19 @@ When communicating with the AI Server, the .NET backend must include the trusted
 
 This ensures that a malicious client cannot spoof their identity by manipulating JSON bodies or query strings.
 
+### 5.4 Wakeel API Integrations (Context Retrieval)
+The AI Server **does NOT own employee or company business data** (e.g., full name, leave balances, company name). 
+When a skill requires context to answer a user's prompt, the AI Server makes synchronous HTTP requests back to the `.NET backend` to retrieve it.
+
+**Contracts & Auth:**
+- The AI Server authenticates its outbound request to `.NET` using `WAKEEL_INTERNAL_API_KEY`.
+- The AI Server forwards the trusted identity (`userId`, `companyId`, `role`) so `.NET` can resolve the exact context.
+- Context is retrieved on-demand via:
+  - `EmployeeContextService`: Calls `GET /api/ai/context/employee`
+  - `CompanyContextService`: Calls `GET /api/ai/context/company`
+
+*(Note: Company Context is structured metadata, whereas Company Policies are separate unstructured documents handled by RAG.)*
+
 ## 6. Future Module Map (For AI Agents)
 - When building a new skill (e.g., Calculation Skill), put it in `src/skills/calculation/`.
 - When integrating with the Leave API, create the HTTP client in `src/integrations/wakeel/` and expose it via a tool in `src/tools/leave-request/`.
