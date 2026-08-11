@@ -4,9 +4,16 @@ import { getCompanyContextApi } from "../integrations/wakeel/company-api.js";
 
 // Zod schema for Company Context validation
 const CompanyContextSchema = z.object({
-  companyId: z.string().min(1, "companyId is required"),
-  companyName: z.string().min(1, "companyName is required"),
-  policies: z.array(z.string()).default([]).optional().nullable()
+  id: z.string().min(1, "id is required"),
+  name: z.string().min(1, "name is required"),
+  tax_id: z.string().optional().nullable(),
+  industry: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  phone_number: z.string().optional().nullable(),
+  email: z.string().optional().nullable(),
+  logo_url: z.string().optional().nullable(),
+  working_hours: z.string().optional().nullable(),
+  registered_at: z.string().optional().nullable(),
 });
 
 /**

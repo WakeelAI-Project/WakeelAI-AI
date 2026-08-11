@@ -34,7 +34,7 @@ export const bootstrapInitialLaborLawKnowledge = async () => {
 
   const alreadyIngested = await isKnowledgeVersionIngested({
     documentId,
-    knowledgeType: "labor-law",
+    sourceType: "labor-law",
     scope: "global",
     companyId: null,
     knowledgeVersion,
@@ -87,7 +87,7 @@ export const bootstrapInitialLaborLawKnowledge = async () => {
   return ingestKnowledgeDocument(
     {
       companyId: "global",
-      knowledgeType: "labor-law",
+      sourceType: "labor-law",
       documentId,
       title,
       content,

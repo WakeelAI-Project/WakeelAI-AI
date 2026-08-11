@@ -4,15 +4,27 @@ import { getEmployeeContextApi } from "../integrations/wakeel/employee-api.js";
 
 // Zod schema for Employee Context validation
 const EmployeeContextSchema = z.object({
-  employeeId: z.string().min(1, "employeeId is required"),
-  fullName: z.string().min(1, "fullName is required"),
+  record_id: z.string().min(1, "record_id is required"),
+  full_name: z.string().min(1, "full_name is required"),
   department: z.string().optional().nullable(),
-  jobTitle: z.string().optional().nullable(),
-  employmentStatus: z.string().optional().nullable(),
-  leaveBalance: z.object({
-    annual: z.number().default(0),
-    casual: z.number().default(0),
-    sick: z.number().default(0),
+  job_title: z.string().optional().nullable(),
+  employment_status: z.string().optional().nullable(),
+  leave_balance: z.object({
+    annual: z.object({
+      total_days: z.number().default(0),
+      used_days: z.number().default(0),
+      remaining_days: z.number().default(0),
+    }),
+    sick: z.object({
+      total_days: z.number().default(0),
+      used_days: z.number().default(0),
+      remaining_days: z.number().default(0),
+    }),
+    unpaid: z.object({
+      total_days: z.number().default(0),
+      used_days: z.number().default(0),
+      remaining_days: z.number().default(0),
+    }),
   }).optional().nullable()
 });
 

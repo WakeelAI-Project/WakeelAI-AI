@@ -16,15 +16,15 @@ describe("EmployeeContextService", () => {
   };
 
   const validResponse = {
-    employeeId: "emp-789",
-    fullName: "Ahmed Mohamed",
+    record_id: "emp-789",
+    full_name: "Ahmed Mohamed",
     department: "HR",
-    jobTitle: "HR Specialist",
-    employmentStatus: "Active",
-    leaveBalance: {
-      annual: 12,
-      casual: 4,
-      sick: 10
+    job_title: "HR Specialist",
+    employment_status: "Active",
+    leave_balance: {
+      annual: { total_days: 20, used_days: 5, remaining_days: 15 },
+      sick: { total_days: 10, used_days: 2, remaining_days: 8 },
+      unpaid: { total_days: 0, used_days: 0, remaining_days: 0 }
     }
   };
 
@@ -56,9 +56,9 @@ describe("EmployeeContextService", () => {
   });
 
   it("should throw an error if the backend returns invalid context shape", async () => {
-    // Missing required fullName
+    // Missing required full_name
     const invalidResponse = {
-      employeeId: "emp-789",
+      record_id: "emp-789",
       department: "HR"
     };
     
@@ -68,7 +68,7 @@ describe("EmployeeContextService", () => {
   });
 
   it("should rethrow integration layer errors", async () => {
-    const backendError = new Error("Backend error 404 from /api/ai/context/employee");
+    const backendError = new Error("Backend error 404 from /api/ai/employee-context");
     backendError.code = "NOT_FOUND";
     backendError.status = 404;
 

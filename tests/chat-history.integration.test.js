@@ -24,10 +24,10 @@ if (!shouldRunIntegrationTests) {
   it("should persist and retrieve chat history securely", async () => {
     const conversationId = new mongoose.Types.ObjectId().toString();
     const headers = {
-      "X-Wakeel-Internal-Key": config.INTERNAL_SERVICE_KEY,
-      "X-Wakeel-User-Id": "user-tenant-a",
-      "X-Wakeel-Company-Id": "tenant-a",
-      "X-Wakeel-Role": "employee"
+      "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
+      "X-User-Id": "user-tenant-a",
+      "X-Company-Id": "tenant-a",
+      "X-Role": "employee"
     };
 
     // 1. Post a chat message
@@ -55,10 +55,10 @@ if (!shouldRunIntegrationTests) {
 
     // 3. Attempt to retrieve history with a different tenant's context (tenant isolation)
     const unauthorizedHeaders = {
-      "X-Wakeel-Internal-Key": config.INTERNAL_SERVICE_KEY,
-      "X-Wakeel-User-Id": "user-tenant-b",
-      "X-Wakeel-Company-Id": "tenant-b",
-      "X-Wakeel-Role": "employee"
+      "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
+      "X-User-Id": "user-tenant-b",
+      "X-Company-Id": "tenant-b",
+      "X-Role": "employee"
     };
 
     const unauthorizedRes = await request(app)

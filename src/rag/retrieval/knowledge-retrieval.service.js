@@ -16,7 +16,7 @@ const RetrievalRequestSchema = z.object({
   query: z.string().trim().min(1, "Query cannot be empty"),
   context: z.object({
     companyId: z.string().trim().min(1, "Company ID cannot be empty").optional(),
-    knowledgeType: z.enum(["labor-law", "company-policy"]),
+    sourceType: z.enum(["labor-law", "company-policy"]),
     documentId: z.string().trim().min(1, "Document ID cannot be empty").optional(),
     topK: z.number().int().positive().max(MAX_TOP_K).optional(),
   }).strict(),
@@ -43,15 +43,15 @@ const getConfiguredTopK = () => {
   return topK;
 };
 
-export const buildKnowledgeVectorFilter = ({ knowledgeType, companyId, documentId }) => {
+export const buildKnowledgeVectorFilter = ({ sourceType, companyId, documentId }) => {
   const filters = [];
 
-  if (knowledgeType === "labor-law") {
+  if (sourceType === "labor-law") {
     filters.push(
-      { knowledgeType: "labor-law" },
+      { sourceType: "labor-law" },
       { scope: "global" }
     );
-  } else if (knowledgeType === "company-policy") {
+  } else if (sourceType === "company-policy") {
     if (!companyId) {
       throw createRetrievalError({
         message: "companyId is required for company-policy retrieval.",
@@ -61,13 +61,13 @@ export const buildKnowledgeVectorFilter = ({ knowledgeType, companyId, documentI
     }
 
     filters.push(
-      { knowledgeType: "company-policy" },
+      { sourceType: "company-policy" },
       { scope: "company" },
       { companyId }
     );
   } else {
     throw createRetrievalError({
-      message: "Invalid knowledgeType for retrieval.",
+      message: "Invalid sourceType for retrieval.",
       code: "KNOWLEDGE_RETRIEVAL_VALIDATION_ERROR",
       status: 400,
     });
@@ -98,7 +98,7 @@ const formatChunk = (chunk) => ({
   documentId: chunk.documentId,
   title: chunk.title,
   content: chunk.content,
-  knowledgeType: chunk.knowledgeType,
+  sourceType: chunk.sourceType,
   scope: chunk.scope,
   companyId: chunk.companyId ?? null,
   chunkIndex: chunk.chunkIndex,
@@ -111,11 +111,11 @@ const formatChunk = (chunk) => ({
 const formatSource = (chunk) => SourceSchema.parse({
   id: `${chunk.documentId}:${chunk.chunkIndex}`,
   title: chunk.title,
-  type: chunk.knowledgeType,
+  type: chunk.sourceType,
   content: chunk.content,
   metadata: {
     documentId: chunk.documentId,
-    knowledgeType: chunk.knowledgeType,
+    sourceType: chunk.sourceType,
     scope: chunk.scope,
     companyId: chunk.companyId ?? null,
     chunkIndex: chunk.chunkIndex,
@@ -130,12 +130,12 @@ const isChunkAllowedForContext = (chunk, context) => {
     return false;
   }
 
-  if (context.knowledgeType === "labor-law") {
-    return chunk.knowledgeType === "labor-law" && chunk.scope === "global";
+  if (context.sourceType === "labor-law") {
+    return chunk.sourceType === "labor-law" && chunk.scope === "global";
   }
 
   return (
-    chunk.knowledgeType === "company-policy"
+    chunk.sourceType === "company-policy"
     && chunk.scope === "company"
     && chunk.companyId === context.companyId
   );
@@ -170,7 +170,7 @@ export const retrieveKnowledge = async (input) => {
     validateQueryEmbedding(queryVector);
   } catch (error) {
     logger.error(
-      `[KnowledgeRetrieval] Query embedding failed knowledgeType=${context.knowledgeType} documentId=${context.documentId || "none"}`
+      `[KnowledgeRetrieval] Query embedding failed sourceType=${context.sourceType} documentId=${context.documentId || "none"}`
     );
 
     if (error.code === "EMBEDDING_GENERATION_FAILED") {
@@ -196,7 +196,7 @@ export const retrieveKnowledge = async (input) => {
     });
   } catch (error) {
     logger.error(
-      `[KnowledgeRetrieval] Vector search failed knowledgeType=${context.knowledgeType} documentId=${context.documentId || "none"}`
+      `[KnowledgeRetrieval] Vector search failed sourceType=${context.sourceType} documentId=${context.documentId || "none"}`
     );
 
     if (isMissingVectorIndexError(error)) {
@@ -220,7 +220,7 @@ export const retrieveKnowledge = async (input) => {
 
   if (scopedChunks.length !== retrievedChunks.length) {
     logger.error(
-      `[KnowledgeRetrieval] Dropped out-of-scope vector search results knowledgeType=${context.knowledgeType} companyId=${context.companyId || "none"}`
+      `[KnowledgeRetrieval] Dropped out-of-scope vector search results sourceType=${context.sourceType} companyId=${context.companyId || "none"}`
     );
   }
 

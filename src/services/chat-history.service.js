@@ -69,10 +69,10 @@ export async function persistAssistantMessage(conversationId, responseData) {
  * @param {string} conversationId
  * @param {import("../contracts/index.js").AIContext} context
  * @param {number} page
- * @param {number} pageSize
+ * @param {number} limit
  * @returns {Promise<Object>}
  */
-export async function getHistory(conversationId, context, page = 1, pageSize = 20) {
+export async function getHistory(conversationId, context, page = 1, limit = 20) {
   const { userId, companyId } = context;
 
   // 1. Verify ownership (tenant isolation)
@@ -88,11 +88,11 @@ export async function getHistory(conversationId, context, page = 1, pageSize = 2
   }
 
   // 2. Enforce limits
-  const safePageSize = Math.min(Math.max(1, pageSize), 100);
+  const safeLimit = Math.min(Math.max(1, limit), 100);
   const safePage = Math.max(1, page);
 
   // 3. Retrieve messages
-  const { messages, total } = await repository.getMessages(conversationId, safePage, safePageSize);
+  const { messages, total } = await repository.getMessages(conversationId, safePage, safeLimit);
 
   // 4. Format response
   const formattedMessages = messages.map(msg => ({
@@ -110,9 +110,9 @@ export async function getHistory(conversationId, context, page = 1, pageSize = 2
     messages: formattedMessages,
     pagination: {
       page: safePage,
-      pageSize: safePageSize,
+      limit: safeLimit,
       total,
-      hasNextPage: safePage * safePageSize < total,
+      hasNextPage: safePage * safeLimit < total,
     }
   };
 }

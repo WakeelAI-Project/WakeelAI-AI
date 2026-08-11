@@ -5,7 +5,7 @@ import { logger } from "../../shared/logger.js";
  * Executes an internal service-to-service HTTP request to the Wakeel .NET Backend.
  * 
  * @param {string} method HTTP method (GET, POST, etc.)
- * @param {string} endpoint Endpoint path (e.g., '/api/ai/context/employee')
+ * @param {string} endpoint Endpoint path (e.g., '/api/ai/employee-context')
  * @param {import("../../contracts/index.js").AIContext} aiContext Trusted AI context containing userId, companyId, role
  * @param {Object} [body] Optional JSON body
  * @returns {Promise<any>}
@@ -20,11 +20,11 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
   const headers = {
     "Content-Type": "application/json",
     // Outbound authentication for AI Server -> .NET Backend
-    "X-Wakeel-Internal-Key": config.WAKEEL_INTERNAL_API_KEY,
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
     // Trusted identity context
-    "X-Wakeel-User-Id": aiContext.userId,
-    "X-Wakeel-Company-Id": aiContext.companyId,
-    "X-Wakeel-Role": aiContext.role,
+    "X-User-Id": aiContext.userId,
+    "X-Company-Id": aiContext.companyId,
+    "X-Role": aiContext.role,
   };
 
   const options = {

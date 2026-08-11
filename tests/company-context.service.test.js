@@ -16,9 +16,9 @@ describe("CompanyContextService", () => {
   };
 
   const validResponse = {
-    companyId: "company-456",
-    companyName: "Example Company",
-    policies: []
+    id: "company-456",
+    name: "Example Company",
+    tax_id: "123-456"
   };
 
   beforeEach(() => {
@@ -42,9 +42,9 @@ describe("CompanyContextService", () => {
   });
 
   it("should throw an error if the backend returns invalid context shape", async () => {
-    // Missing required companyName
+    // Missing required name
     const invalidResponse = {
-      companyId: "company-456",
+      id: "company-456",
     };
     
     getCompanyContextApi.mockResolvedValue(invalidResponse);
@@ -53,7 +53,7 @@ describe("CompanyContextService", () => {
   });
 
   it("should rethrow integration layer errors", async () => {
-    const backendError = new Error("Backend error 404 from /api/ai/context/company");
+    const backendError = new Error("Backend error 404 from /api/ai/company-context");
     backendError.code = "NOT_FOUND";
     backendError.status = 404;
 
