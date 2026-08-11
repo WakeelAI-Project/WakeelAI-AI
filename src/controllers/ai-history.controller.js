@@ -11,14 +11,14 @@ import * as chatHistoryService from "../services/chat-history.service.js";
  */
 export const getHistory = async (req, res, next) => {
   try {
-    const { conversationId, page, pageSize } = req.query;
+    const { conversationId, page, limit } = req.query;
     const context = req.aiContext;
 
     const history = await chatHistoryService.getHistory(
       conversationId,
       context,
       page,
-      pageSize
+      limit
     );
 
     return res.status(200).json(history);

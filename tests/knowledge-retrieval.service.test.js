@@ -34,7 +34,7 @@ describe("KnowledgeRetrievalService", () => {
         documentId: "labor-law-v1",
         title: "Egyptian Labor Law",
         content: "Relevant labor law chunk.",
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
         scope: "global",
         companyId: null,
         chunkIndex: 7,
@@ -47,9 +47,9 @@ describe("KnowledgeRetrievalService", () => {
   });
 
   it("builds a labor-law filter with global scope", () => {
-    expect(buildKnowledgeVectorFilter({ knowledgeType: "labor-law" })).toEqual({
+    expect(buildKnowledgeVectorFilter({ sourceType: "labor-law" })).toEqual({
       $and: [
-        { knowledgeType: "labor-law" },
+        { sourceType: "labor-law" },
         { scope: "global" },
       ],
     });
@@ -57,11 +57,11 @@ describe("KnowledgeRetrievalService", () => {
 
   it("builds a company-policy filter scoped to the requesting company", () => {
     expect(buildKnowledgeVectorFilter({
-      knowledgeType: "company-policy",
+      sourceType: "company-policy",
       companyId: "company-a",
     })).toEqual({
       $and: [
-        { knowledgeType: "company-policy" },
+        { sourceType: "company-policy" },
         { scope: "company" },
         { companyId: "company-a" },
       ],
@@ -72,7 +72,7 @@ describe("KnowledgeRetrievalService", () => {
     await retrieveKnowledge({
       query: "What are the annual leave rules?",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
       },
     });
 
@@ -83,7 +83,7 @@ describe("KnowledgeRetrievalService", () => {
       queryVector,
       filter: {
         $and: [
-          { knowledgeType: "labor-law" },
+          { sourceType: "labor-law" },
           { scope: "global" },
         ],
       },
@@ -98,7 +98,7 @@ describe("KnowledgeRetrievalService", () => {
         documentId: "policy-a",
         title: "Company A Policy",
         content: "Company A policy chunk.",
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
         scope: "company",
         companyId: "company-a",
         chunkIndex: 0,
@@ -110,14 +110,14 @@ describe("KnowledgeRetrievalService", () => {
     await retrieveKnowledge({
       query: "What is my company leave policy?",
       context: {
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
         companyId: "company-a",
       },
     });
 
     expect(mockSearchKnowledgeChunksByVector.mock.calls[0][0].filter).toEqual({
       $and: [
-        { knowledgeType: "company-policy" },
+        { sourceType: "company-policy" },
         { scope: "company" },
         { companyId: "company-a" },
       ],
@@ -130,7 +130,7 @@ describe("KnowledgeRetrievalService", () => {
         documentId: "policy-b",
         title: "Company B Policy",
         content: "Company B policy chunk.",
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
         scope: "company",
         companyId: "company-b",
         chunkIndex: 0,
@@ -141,7 +141,7 @@ describe("KnowledgeRetrievalService", () => {
         documentId: "policy-a",
         title: "Company A Policy",
         content: "Company A policy chunk.",
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
         scope: "company",
         companyId: "company-a",
         chunkIndex: 1,
@@ -153,7 +153,7 @@ describe("KnowledgeRetrievalService", () => {
     const result = await retrieveKnowledge({
       query: "What is my company leave policy?",
       context: {
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
         companyId: "company-a",
       },
     });
@@ -167,7 +167,7 @@ describe("KnowledgeRetrievalService", () => {
     await expect(retrieveKnowledge({
       query: "What is my policy?",
       context: {
-        knowledgeType: "company-policy",
+        sourceType: "company-policy",
       },
     })).rejects.toMatchObject({
       code: "TENANT_CONTEXT_REQUIRED",
@@ -182,14 +182,14 @@ describe("KnowledgeRetrievalService", () => {
     await retrieveKnowledge({
       query: "Find this document",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
         documentId: "labor-law-v1",
       },
     });
 
     expect(mockSearchKnowledgeChunksByVector.mock.calls[0][0].filter).toEqual({
       $and: [
-        { knowledgeType: "labor-law" },
+        { sourceType: "labor-law" },
         { scope: "global" },
         { documentId: "labor-law-v1" },
       ],
@@ -200,7 +200,7 @@ describe("KnowledgeRetrievalService", () => {
     const result = await retrieveKnowledge({
       query: "What does labor law say?",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
       },
     });
 
@@ -210,7 +210,7 @@ describe("KnowledgeRetrievalService", () => {
           documentId: "labor-law-v1",
           title: "Egyptian Labor Law",
           content: "Relevant labor law chunk.",
-          knowledgeType: "labor-law",
+          sourceType: "labor-law",
           scope: "global",
           companyId: null,
           chunkIndex: 7,
@@ -228,7 +228,7 @@ describe("KnowledgeRetrievalService", () => {
           content: "Relevant labor law chunk.",
           metadata: {
             documentId: "labor-law-v1",
-            knowledgeType: "labor-law",
+            sourceType: "labor-law",
             scope: "global",
             companyId: null,
             chunkIndex: 7,
@@ -248,7 +248,7 @@ describe("KnowledgeRetrievalService", () => {
     await expect(retrieveKnowledge({
       query: "Bad embedding",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
       },
     })).rejects.toMatchObject({
       code: "EMBEDDING_GENERATION_FAILED",
@@ -264,7 +264,7 @@ describe("KnowledgeRetrievalService", () => {
     await expect(retrieveKnowledge({
       query: "What does labor law say?",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
       },
     })).rejects.toMatchObject({
       code: "VECTOR_INDEX_UNAVAILABLE",
@@ -277,7 +277,7 @@ describe("KnowledgeRetrievalService", () => {
     await expect(retrieveKnowledge({
       query: " ",
       context: {
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
       },
     })).rejects.toMatchObject({
       code: "KNOWLEDGE_RETRIEVAL_VALIDATION_ERROR",

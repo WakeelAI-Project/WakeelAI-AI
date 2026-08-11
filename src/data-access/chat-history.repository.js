@@ -48,17 +48,17 @@ export async function saveMessage(messageData) {
  *
  * @param {string} conversationId
  * @param {number} page
- * @param {number} pageSize
+ * @param {number} limit
  * @returns {Promise<{ messages: Array, total: number }>}
  */
-export async function getMessages(conversationId, page, pageSize) {
-  const skip = (page - 1) * pageSize;
+export async function getMessages(conversationId, page, limit) {
+  const skip = (page - 1) * limit;
 
   const [messages, total] = await Promise.all([
     Message.find({ conversationId })
       .sort({ createdAt: 1 })
       .skip(skip)
-      .limit(pageSize)
+      .limit(limit)
       .lean(),
     Message.countDocuments({ conversationId }),
   ]);

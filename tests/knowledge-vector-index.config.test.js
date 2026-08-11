@@ -40,7 +40,7 @@ describe("knowledge vector index configuration", () => {
         },
         {
           type: "filter",
-          path: "knowledgeType",
+          path: "sourceType",
         },
         {
           type: "filter",

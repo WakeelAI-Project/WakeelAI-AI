@@ -24,7 +24,7 @@ Index definition:
     },
     {
       "type": "filter",
-      "path": "knowledgeType"
+      "path": "sourceType"
     },
     {
       "type": "filter",

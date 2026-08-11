@@ -14,10 +14,10 @@ describe("Internal Auth Middleware", () => {
       json: jest.fn(),
     };
     next = jest.fn();
-    config.INTERNAL_SERVICE_KEY = "test-secret-key";
+    config.WAKEEL_INTERNAL_API_KEY = "your_internal_api_key_here";
   });
 
-  it("should return 401 if X-Wakeel-Internal-Key is missing", () => {
+  it("should return 401 if X-Internal-API-Key is missing", () => {
     req.header.mockReturnValue(undefined);
 
     requireInternalAuth(req, res, next);
@@ -30,9 +30,9 @@ describe("Internal Auth Middleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("should return 401 if X-Wakeel-Internal-Key is invalid", () => {
+  it("should return 401 if X-Internal-API-Key is invalid", () => {
     req.header.mockImplementation((name) => {
-      if (name === "X-Wakeel-Internal-Key") return "wrong-key";
+      if (name === "X-Internal-API-Key") return "wrong-key";
       return undefined;
     });
 
@@ -43,7 +43,7 @@ describe("Internal Auth Middleware", () => {
 
   it("should return 400 if identity headers are missing", () => {
     req.header.mockImplementation((name) => {
-      if (name === "X-Wakeel-Internal-Key") return "test-secret-key";
+      if (name === "X-Internal-API-Key") return "your_internal_api_key_here";
       return undefined;
     });
 
@@ -58,10 +58,10 @@ describe("Internal Auth Middleware", () => {
 
   it("should populate req.aiContext and call next if all headers are valid", () => {
     req.header.mockImplementation((name) => {
-      if (name === "X-Wakeel-Internal-Key") return "test-secret-key";
-      if (name === "X-Wakeel-User-Id") return "user-123";
-      if (name === "X-Wakeel-Company-Id") return "company-456";
-      if (name === "X-Wakeel-Role") return "employee";
+      if (name === "X-Internal-API-Key") return "your_internal_api_key_here";
+      if (name === "X-User-Id") return "user-123";
+      if (name === "X-Company-Id") return "company-456";
+      if (name === "X-Role") return "employee";
       return undefined;
     });
 

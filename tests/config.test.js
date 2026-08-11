@@ -30,7 +30,7 @@ describe("Configuration Validation", () => {
       EMBEDDING_MODEL: "intfloat/multilingual-e5-large",
       WAKEEL_API_BASE_URL: "https://api.wakeel.local",
       WAKEEL_INTERNAL_API_KEY: "wakeel-secret",
-      INTERNAL_SERVICE_KEY: "internal-secret",
+      WAKEEL_INTERNAL_API_KEY: "internal-secret",
       VECTOR_INDEX_NAME: "test_vector_index",
       KNOWLEDGE_RETRIEVAL_TOP_K: "10",
       KNOWLEDGE_RETRIEVAL_MIN_SCORE: "0.85",

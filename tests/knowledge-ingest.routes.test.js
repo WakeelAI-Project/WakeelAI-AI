@@ -16,7 +16,7 @@ const app = (await import("../src/app.js")).default;
 describe("POST /api/knowledge/ingest", () => {
   const validPayload = {
     companyId: "company-uuid",
-    knowledgeType: "labor-law",
+    sourceType: "labor-law",
     documentId: "document-uuid",
     title: "Egyptian Labor Law",
     content: "Document text for ingestion.",
@@ -48,7 +48,7 @@ describe("POST /api/knowledge/ingest", () => {
   it("accepts a valid company-policy ingestion request", async () => {
     const payload = {
       ...validPayload,
-      knowledgeType: "company-policy",
+      sourceType: "company-policy",
       title: "Company Leave Policy",
     };
 
@@ -61,10 +61,10 @@ describe("POST /api/knowledge/ingest", () => {
     expect(mockIngestKnowledgeDocument).toHaveBeenCalledWith(payload);
   });
 
-  it("rejects an invalid knowledgeType", async () => {
+  it("rejects an invalid sourceType", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
-      .send({ ...validPayload, knowledgeType: "unknown" });
+      .send({ ...validPayload, sourceType: "unknown" });
 
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);

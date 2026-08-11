@@ -20,7 +20,7 @@ const chatRequestSchema = z.object({
 const historyQuerySchema = z.object({
   conversationId: z.string().trim().min(1, "Conversation ID cannot be empty"),
   page: z.coerce.number().int().min(1).optional().default(1),
-  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
 });
 
 // Register the POST /chat route with validation and controller
@@ -30,9 +30,9 @@ router.post(
   postChat
 );
 
-// Register the GET /history route
+// Register the GET /chat/history route
 router.get(
-  "/history",
+  "/chat/history",
   validateRequest({ query: historyQuerySchema }),
   getHistory
 );

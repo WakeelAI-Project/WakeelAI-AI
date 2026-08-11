@@ -32,14 +32,14 @@ describe("POST /api/ai/chat", () => {
   };
 
   const validHeaders = {
-    "X-Wakeel-Internal-Key": "test-secret-key",
-    "X-Wakeel-User-Id": "user-456",
-    "X-Wakeel-Company-Id": "company-789",
-    "X-Wakeel-Role": "employee"
+    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-User-Id": "user-456",
+    "X-Company-Id": "company-789",
+    "X-Role": "employee"
   };
 
   beforeAll(() => {
-    process.env.INTERNAL_SERVICE_KEY = "test-secret-key";
+    process.env.WAKEEL_INTERNAL_API_KEY = "your_internal_api_key_here";
   });
 
   it("should return 200 and successful response for a valid request", async () => {
@@ -79,7 +79,7 @@ describe("POST /api/ai/chat", () => {
   });
 
   it("should return 400 if identity headers are missing", async () => {
-    const response = await request(app).post("/api/ai/chat").set({ "X-Wakeel-Internal-Key": "test-secret-key" }).send(validPayload);
+    const response = await request(app).post("/api/ai/chat").set({ "X-Internal-API-Key": "your_internal_api_key_here" }).send(validPayload);
     expect(response.status).toBe(400);
   });
 });

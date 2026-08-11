@@ -12,10 +12,10 @@ import { config } from "../config/env.js";
  * @param {import("express").NextFunction} next 
  */
 export const requireInternalAuth = (req, res, next) => {
-  const internalKey = req.header("X-Wakeel-Internal-Key");
+  const internalKey = req.header("X-Internal-API-Key");
 
   // 1. Authenticate the internal request
-  if (!internalKey || internalKey !== config.INTERNAL_SERVICE_KEY) {
+  if (!internalKey || internalKey !== config.WAKEEL_INTERNAL_API_KEY) {
     return res.status(401).json({
       success: false,
       error: {
@@ -26,9 +26,9 @@ export const requireInternalAuth = (req, res, next) => {
   }
 
   // 2. Extract trusted identity headers
-  const userId = req.header("X-Wakeel-User-Id");
-  const companyId = req.header("X-Wakeel-Company-Id");
-  const role = req.header("X-Wakeel-Role");
+  const userId = req.header("X-User-Id");
+  const companyId = req.header("X-Company-Id");
+  const role = req.header("X-Role");
 
   if (!userId || !companyId || !role) {
     return res.status(400).json({
