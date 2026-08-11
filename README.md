@@ -12,4 +12,6 @@ Story 3.3
 ├── 3.3.1 Implement POST /api/knowledge/ingest      ✅ DONE
 ├── 3.3.2 Configure MongoDB Vector Search   ✅ DONE
 └── 3.3.3 Implement KnowledgeRetrievalService   ✅ DONE
+
+Addetional task : Chat History  ✅ DONE
 ```
