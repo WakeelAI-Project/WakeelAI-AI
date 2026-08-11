@@ -44,6 +44,10 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
 
 import * as skillRegistry from "../skills/registry.js";
 import * as toolRegistry from "../tools/registry.js";
+import calculationSkill from "../skills/calculation/calculation.skill.js";
+
+// Register known skills
+skillRegistry.register(calculationSkill);
 
 /**
  * Boundary for the Skill/Tool registry.
