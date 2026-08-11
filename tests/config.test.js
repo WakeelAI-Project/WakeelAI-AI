@@ -1,11 +1,10 @@
 import { jest } from "@jest/globals";
-import { z } from "zod";
 
 describe("Configuration Validation", () => {
   let originalEnv;
 
   beforeEach(() => {
-    originalEnv = process.env;
+    originalEnv = { ...process.env };
     jest.resetModules();
   });
 
@@ -14,6 +13,12 @@ describe("Configuration Validation", () => {
   });
 
   it("should fail when required environment variables are missing", async () => {
+    jest.unstable_mockModule("dotenv", () => ({
+      default: {
+        config: jest.fn()
+      }
+    }));
+
     process.env = {}; // Clear env
 
     // Mock process.exit to prevent the test from exiting
