@@ -14,4 +14,8 @@ Story 3.3
 └── 3.3.3 Implement KnowledgeRetrievalService   ✅ DONE
 
 Addetional task : Chat History  ✅ DONE
+
+Story 3.4
+├── 3.4.1 EmployeeContextService  ✅ DONE
+└── 3.4.2 CompanyContextService   ✅ DONE
 ```
