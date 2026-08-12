@@ -24,4 +24,6 @@ Story 3.5
 
 Story 3.6
 └── 3.6.1 DocumentGenerationService                 ✅ DONE
+
+story 3.7 proccecing                                🔃🔃
 ```
