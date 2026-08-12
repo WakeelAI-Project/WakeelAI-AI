@@ -105,20 +105,22 @@ The AI Server route schema enforces `conversationId` as a required, non-empty st
 ### Skill Execution Lifecycle
 The AI Server leverages an Orchestrator/SkillRegistry architecture (`src/orchestrator/dependency-boundaries.js`). 
 - **Calculation Skill**: Evaluates mathematical intents deterministically and is isolated inside `src/skills/calculation/`. It relies on the orchestrator to fetch any context beforehand if needed, and uses LLM structured parsing only to identify operands.
+- **Document Generation Skill**: Registered as `document_generation` and isolated inside `src/skills/document-generation/`. It delegates to `DocumentGenerationService` and returns structured `missing_fields` or a `document_draft` result card through the existing `ChatResponse`.
 
 ## 8. Document Generation Architecture
-*Document generation is a shared responsibility where the AI Server handles dynamic content assembly and the .NET Backend owns persistence and templating.*
+Document generation is implemented as a skill-driven capability. The AI Server handles intent routing, deterministic template processing, field collection, context retrieval, rendering, validation, and the save request. The .NET Backend remains the system of record for templates and generated documents.
 
 ### 8.1 Responsibility Boundary
 
 **AI Server owns:**
-- Intent/document-type identification
-- Required-field detection & missing-field detection
-- Conversational collection of missing values
+- Document-generation intent routing through the orchestrator
+- Document-type resolution for the supported `Contract` document type
+- Required-field detection from active template placeholders
+- Conversational missing-field detection and accumulation from prior user turns
 - Template retrieval request (`GET /api/ai/templates/active?documentType={documentType}`)
-- Company-context retrieval
-- RAG retrieval when legal/policy grounding is required
-- Document content generation & template placeholder filling
+- Company-context retrieval for structured company fields
+- RAG retrieval only when a template contains legal/law/statutory/mandatory or policy placeholders
+- Template placeholder filling and HTML validation
 - Document save request (`POST /api/documents/save`) — see §10.3 for the finalized request/response contract
 - Structured result response (`document_draft`)
 
@@ -131,22 +133,28 @@ The AI Server leverages an Orchestrator/SkillRegistry architecture (`src/orchest
 ### 8.2 Document Generation Flow
 
 ```text
-HR -> .NET Backend -> AI Server -> Document Generation Skill
+HR -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> document_generation skill -> DocumentGenerationService
 ```
-1. AI determines document type & required fields.
-2. AI checks provided values.
-3. If fields are missing, AI returns structured `missing_fields`.
-4. HR provides field values.
-5. AI Server retrieves Company Context, Active Document Template, and RAG context (if required).
-6. AI generates document content.
-7. AI posts to `.NET`: `POST /api/documents/save`.
-8. `.NET` persists document as Draft.
-9. AI receives `document_id`/`status`.
-10. AI returns `document_draft` `result_card` to HR.
+1. HR sends a chat message and `.NET` forwards it with the existing `conversationId` and internal identity headers.
+2. The orchestrator detects `document_generation` intent and executes the registered `document_generation` skill.
+3. `DocumentGenerationService` resolves employment-contract wording to the existing backend document type `Contract`.
+4. The service retrieves the active template with `GET /api/ai/templates/active?documentType=Contract`.
+5. The service extracts deterministic `{{placeholder}}` fields and adds `employee_id` because the finalized save contract requires it.
+6. The service rebuilds user-provided values from current and prior user messages in chat history; it does not persist document state locally.
+7. Structured company placeholders such as `company_name`, `tax_id`, `address`, `email`, and related fields are filled from `GET /api/ai/company-context`.
+8. Employee values are collected conversationally. The service does not search employees by name and does not treat `X-User-Id` as the target employee.
+9. If a legal/law/statutory/mandatory placeholder exists, the service retrieves labor-law knowledge through `KnowledgeRetrievalService` with global labor-law scope.
+10. If a policy placeholder exists, the service retrieves company-policy knowledge through `KnowledgeRetrievalService` with the authenticated `companyId`.
+11. If any required field remains missing, the service returns the finalized structured `missing_fields` array and does not render or save.
+12. Once complete, the service substitutes escaped values into the backend template and validates that no placeholders remain unresolved.
+13. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, `employee_id`, optional `template_id`, and metadata.
+14. The orchestrator returns the existing `ChatResponse` shape with `result_card.type = "document_draft"` after a successful save.
 
 ### 8.3 Important Constraints
 - **NO Target Employee Lookup:** The AI Server must NOT interpret `X-User-Id` as a target employee ID for generating a document, nor perform name-based employee lookup. The required employee information is supplied directly by the HR through the structured missing-fields conversational flow. Employee Context is only retrieved if the existing business logic requires the requester's context.
 - **Strict Error Handling:** If a template is not found or a save request fails, the AI Server safely returns a structured application error. It will not generate an invented contract or falsely report a document was saved.
+- **Supported Type:** Current document generation supports the existing `Contract` backend type. Employment-contract language and `employment_contract` are aliases that resolve to `Contract`; unsupported document types are rejected instead of mapped to invented backend values.
+- **No Local Document Persistence:** Templates and generated drafts are never stored in AI-owned collections. Only normal chat history is stored, including optional chat metadata such as `missing_fields` and `result_card`.
 
 ## 9. Error Handling
 AI Server internal errors use a structured format:

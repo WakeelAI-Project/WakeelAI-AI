@@ -2,6 +2,7 @@ import { logger } from "../shared/logger.js";
 import { config } from "../config/env.js";
 import { ChatOpenAI } from "@langchain/openai";
 import { z } from "zod";
+import { ChatResponseSchema } from "../contracts/index.js";
 import { createOrchestratorContext } from "./orchestrator-context.js";
 import { gatherContextBoundary, executeCapabilitiesBoundary } from "./dependency-boundaries.js";
 
@@ -32,6 +33,58 @@ const intentLlm = llm.withStructuredOutput(IntentSchema, {
   name: "determine_intent"
 });
 
+const DOCUMENT_GENERATION_CAPABILITY = "document_generation";
+
+const normalizeIntent = (intent) => {
+  const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
+    ? [...intent.requiresCapabilities]
+    : [];
+
+  if (
+    intent?.intent === DOCUMENT_GENERATION_CAPABILITY
+    && !requiresCapabilities.includes(DOCUMENT_GENERATION_CAPABILITY)
+  ) {
+    requiresCapabilities.push(DOCUMENT_GENERATION_CAPABILITY);
+  }
+
+  return {
+    ...intent,
+    requiresCapabilities,
+    requiresContext: Array.isArray(intent?.requiresContext) ? intent.requiresContext : [],
+  };
+};
+
+const getDocumentGenerationSkillResult = (capabilityResults) => {
+  const result = capabilityResults.find((candidate) => (
+    candidate.capability === DOCUMENT_GENERATION_CAPABILITY
+    && candidate.status === "success"
+    && candidate.data?.data?.type === DOCUMENT_GENERATION_CAPABILITY
+  ));
+
+  return result?.data || null;
+};
+
+const buildDocumentGenerationResponse = (conversationId, skillResult) => {
+  const payload = skillResult.data || {};
+  const response = {
+    conversationId,
+    message: skillResult.message || "I could not complete the document generation request.",
+    type: payload.result_card ? "action" : "text",
+    sources: skillResult.sources || [],
+    actions: skillResult.action ? [skillResult.action] : [],
+  };
+
+  if (payload.missing_fields) {
+    response.missing_fields = payload.missing_fields;
+  }
+
+  if (payload.result_card) {
+    response.result_card = payload.result_card;
+  }
+
+  return ChatResponseSchema.parse(response);
+};
+
 /**
  * Determines intent using the configured LLM.
  * 
@@ -43,15 +96,15 @@ async function determineIntent(message) {
     const analysis = await intentLlm.invoke(`Analyze the following user message and determine their intent, required capabilities, and required context data sources.
     
 User Message: "${message}"`);
-    return analysis;
+    return normalizeIntent(analysis);
   } catch (error) {
     logger.error(`[Orchestrator] Failed to determine intent: ${error.message}`);
     // Fallback to general conversation if structured output fails
-    return {
+    return normalizeIntent({
       intent: "general_conversation",
       requiresCapabilities: [],
       requiresContext: []
-    };
+    });
   }
 }
 
@@ -80,6 +133,12 @@ export const handleChat = async ({ message, conversationId, context }) => {
 
     // 4. Execute Capabilities (Skills / Tools)
     orchContext.capabilityResults = await executeCapabilitiesBoundary(orchContext.intent.requiresCapabilities, orchContext);
+
+    const documentGenerationResult = getDocumentGenerationSkillResult(orchContext.capabilityResults);
+    if (documentGenerationResult) {
+      logger.info(`[Orchestrator] Returning structured document generation response for conversation: ${conversationId}`);
+      return buildDocumentGenerationResponse(orchContext.conversationId, documentGenerationResult);
+    }
 
     // 5. Generate Final Response
     const finalPrompt = `

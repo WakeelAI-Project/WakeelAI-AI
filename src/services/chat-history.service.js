@@ -56,6 +56,8 @@ export async function persistAssistantMessage(conversationId, responseData) {
       type: responseData.type,
       sources: responseData.sources,
       actions: responseData.actions,
+      missing_fields: responseData.missing_fields || [],
+      result_card: responseData.result_card || null,
     });
   } catch (error) {
     logger.error(`[ChatHistoryService] Failed to persist assistant message: ${error.message}`);
@@ -102,6 +104,8 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
     type: msg.type,
     sources: msg.sources || [],
     actions: msg.actions || [],
+    missing_fields: msg.missing_fields || [],
+    result_card: msg.result_card || null,
     createdAt: msg.createdAt,
   }));
 

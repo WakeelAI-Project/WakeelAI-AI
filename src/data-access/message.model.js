@@ -34,6 +34,14 @@ const messageSchema = new mongoose.Schema(
       type: Array,
       default: [],
     },
+    missing_fields: {
+      type: Array,
+      default: [],
+    },
+    result_card: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
   },
   {
     collection: "messages",

@@ -47,18 +47,33 @@ describe("ChatHistoryService", () => {
   describe("persistAssistantMessage", () => {
     it("should save assistant message", async () => {
       repository.saveMessage.mockResolvedValue({});
+      const resultCard = {
+        type: "document_draft",
+        doc_id: "doc-1",
+        doc_type: "Contract",
+      };
+      const missingFields = [{
+        field_name: "employee_id",
+        input_type: "text",
+        label: "Employee ID",
+        options: [],
+      }];
 
       await chatHistoryService.persistAssistantMessage(conversationId, {
         message: "Hello Human",
         type: "text",
         sources: [],
         actions: [],
+        missing_fields: missingFields,
+        result_card: resultCard,
       });
 
       expect(repository.saveMessage).toHaveBeenCalledWith(expect.objectContaining({
         conversationId,
         role: "assistant",
         content: "Hello Human",
+        missing_fields: missingFields,
+        result_card: resultCard,
       }));
     });
   });
@@ -80,6 +95,8 @@ describe("ChatHistoryService", () => {
 
       expect(result.conversationId).toBe(conversationId);
       expect(result.messages).toHaveLength(1);
+      expect(result.messages[0].missing_fields).toEqual([]);
+      expect(result.messages[0].result_card).toBeNull();
       expect(result.pagination.total).toBe(1);
       expect(result.pagination.hasNextPage).toBe(false);
     });
