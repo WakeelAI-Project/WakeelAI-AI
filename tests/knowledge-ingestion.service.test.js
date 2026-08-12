@@ -25,7 +25,7 @@ const { ingestKnowledgeDocument } = await import("../src/rag/ingestion/knowledge
 describe("Knowledge ingestion service", () => {
   const basePayload = {
     companyId: "company-uuid",
-    knowledgeType: "labor-law",
+    sourceType: "labor-law",
     documentId: "document-uuid",
     title: "Egyptian Labor Law",
     content: [
@@ -69,7 +69,7 @@ describe("Knowledge ingestion service", () => {
         expect.objectContaining({
           documentId: "document-uuid",
           companyId: null,
-          knowledgeType: "labor-law",
+          sourceType: "labor-law",
           scope: "global",
           title: "Egyptian Labor Law",
           chunkIndex: 0,
@@ -85,7 +85,7 @@ describe("Knowledge ingestion service", () => {
   it("stores company-policy chunks scoped to companyId", async () => {
     const payload = {
       ...basePayload,
-      knowledgeType: "company-policy",
+      sourceType: "company-policy",
       title: "Company Policy",
     };
 
@@ -99,7 +99,7 @@ describe("Knowledge ingestion service", () => {
       expect.arrayContaining([
         expect.objectContaining({
           companyId: "company-uuid",
-          knowledgeType: "company-policy",
+          sourceType: "company-policy",
           scope: "company",
         }),
       ])

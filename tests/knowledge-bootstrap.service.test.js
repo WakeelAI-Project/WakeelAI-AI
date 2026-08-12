@@ -68,7 +68,7 @@ describe("bootstrapInitialLaborLawKnowledge", () => {
     expect(mockIngestKnowledgeDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         companyId: "global",
-        knowledgeType: "labor-law",
+        sourceType: "labor-law",
         documentId: "egyptian-labor-law",
         title: "Egyptian Labor Law",
         content: "Egyptian labor law source text.",

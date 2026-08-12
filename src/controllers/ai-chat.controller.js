@@ -1,4 +1,5 @@
 import { handleChat } from "../orchestrator/orchestrator.service.js";
+import * as chatHistoryService from "../services/chat-history.service.js";
 
 /**
  * AI Chat Controller
@@ -11,11 +12,20 @@ import { handleChat } from "../orchestrator/orchestrator.service.js";
  */
 export const postChat = async (req, res, next) => {
   try {
-    const { message, conversationId, context } = req.body;
+    const { message, conversationId } = req.body;
+    const context = req.aiContext;
 
     // Delegate to the clean service boundary, injecting conversationId into context
     const fullContext = { ...context, conversationId };
+    
+    // 1. Persist the user message before orchestration
+    await chatHistoryService.persistUserMessage(conversationId, fullContext, message);
+
+    // 2. Execute orchestration
     const result = await handleChat({ message, conversationId, context: fullContext });
+
+    // 3. Persist the assistant message
+    await chatHistoryService.persistAssistantMessage(conversationId, result);
 
     return res.status(200).json(result);
   } catch (error) {

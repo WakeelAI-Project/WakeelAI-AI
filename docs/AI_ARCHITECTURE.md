@@ -45,8 +45,183 @@ Future AI coding agents must read this document and adhere to the following rule
 7. **SYNCHRONOUS EXECUTION:** Do not introduce RabbitMQ, Redis, BullMQ, or Celery.
 8. **ISOLATE TRANSPORT:** Skills, tools, and the orchestrator must not depend on Express `req` or `res` objects directly. Pass clean contextual data (e.g., `AIContext`).
 
-## 5. Future Module Map (For AI Agents)
-- When building a new skill (e.g., Calculation Skill), put it in `src/skills/calculation/`.
-- When integrating with the Leave API, create the HTTP client in `src/integrations/wakeel/` and expose it via a tool in `src/tools/leave-request/`.
-- When implementing RAG ingestion, put the logic in `src/rag/ingestion/`.
-- When configuring LangChain models, put them in `src/llm/`.
+## 5. Persistence and Ownership
+
+### 5.1 AI Server Owns Chat History
+Unlike general business data (which lives in the .NET Postgres database), **Chat History is owned exclusively by the AI Server** in its MongoDB database. 
+The .NET backend acts as a gateway for history requests, but does not store the messages itself.
+
+### 5.2 Tenant & User Isolation
+All conversations and messages are strictly isolated by `companyId` and `userId`.
+- The AI Server enforces ownership: it will reject any retrieval attempt where the requesting user/company does not match the owner of the conversation.
+- Unauthorized access attempts safely return `404 Not Found` to prevent leaking the existence of other tenants' data.
+
+### 5.3 Internal Request Headers (Service-to-Service)
+The AI Server **never trusts identity context from query parameters or request bodies**. 
+The .NET backend is the sole authority for authentication and authorization.
+
+When communicating with the AI Server, the .NET backend must include the trusted identity using internal HTTP headers:
+- `X-Internal-API-Key`: The shared internal secret (validates the request origin) verified against `WAKEEL_INTERNAL_API_KEY`.
+- `X-User-Id`: The authenticated user's ID.
+- `X-Company-Id`: The authenticated user's company ID.
+- `X-Role`: The authenticated user's role.
+
+### 5.4 Wakeel API Integrations (Context Retrieval)
+The AI Server **does NOT own employee or company business data** (e.g., full name, leave balances, company name). 
+When a skill requires context to answer a user's prompt, the AI Server makes synchronous HTTP requests back to the `.NET backend` to retrieve it.
+
+**Context Retrieval Endpoints & Auth:**
+- The AI Server authenticates its outbound request to `.NET` using the exact same headers (`X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role`).
+- **EmployeeContextService**: Calls `.NET` via `GET /api/ai/employee-context`
+  - Expected backend response schema: `{ record_id, full_name, department, job_title, employment_status, leave_balance: { annual, sick, unpaid } }`
+- **CompanyContextService**: Calls `.NET` via `GET /api/ai/company-context`
+  - Expected backend response schema: `{ id, name, tax_id, industry, address, phone_number, email, logo_url, working_hours, registered_at }`
+
+## 6. API Endpoint Inventory (Canonical Contracts)
+
+### Internal AI Routes (Served by AI Server)
+- **`POST /api/ai/chat`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role`)
+  - Body: `{ message, conversationId }`
+  - Response: `{ conversationId, message, type, sources, actions, missing_fields, result_card }`
+- **`GET /api/ai/chat/history`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role`)
+  - Query Parameters: `conversationId` (required), `page`, `limit`
+
+### Knowledge Ingestion (Served by AI Server)
+- **`POST /api/knowledge/ingest`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role` — `requireInternalAuth` is applied to this route)
+  - Body Fields Include: `sourceType` (formerly `knowledgeType`), `companyId`, `documentId`, `title`, `content`.
+
+### 6.1 `conversationId` Lifecycle (Finalized)
+The AI Server **never generates** a `conversationId`. `.NET` owns generation:
+1. Client starts a new conversation with no `conversation_id`.
+2. `.NET` generates a new `conversationId` (UUID) and includes it in the `POST /api/ai/chat` body sent to the AI Server.
+3. The AI Server persists messages under that exact `conversationId` and returns it unchanged in the response.
+4. `.NET` returns the `conversationId` to the client (as `conversation_id`) so it can be reused on subsequent turns and passed to `GET /chat/history`.
+5. History and ownership are always scoped by `conversationId + userId + companyId` (see `chat-history.repository.js:findConversation`).
+
+The AI Server route schema enforces `conversationId` as a required, non-empty string on both `POST /api/ai/chat` and `GET /api/ai/chat/history` — a request without one is rejected with `400` before any orchestration happens.
+
+## 7. Skill/Tool Architecture
+
+### Skill Execution Lifecycle
+The AI Server leverages an Orchestrator/SkillRegistry architecture (`src/orchestrator/dependency-boundaries.js`). 
+- **Calculation Skill**: Evaluates mathematical intents deterministically and is isolated inside `src/skills/calculation/`. It relies on the orchestrator to fetch any context beforehand if needed, and uses LLM structured parsing only to identify operands.
+- **Document Generation Skill**: Registered as `document_generation` and isolated inside `src/skills/document-generation/`. It delegates to `DocumentGenerationService` and returns structured `missing_fields` or a `document_draft` result card through the existing `ChatResponse`.
+
+## 8. Document Generation Architecture
+Document generation is implemented as a skill-driven capability. The AI Server handles intent routing, deterministic template processing, field collection, context retrieval, rendering, validation, and the save request. The .NET Backend remains the system of record for templates and generated documents.
+
+### 8.1 Responsibility Boundary
+
+**AI Server owns:**
+- Document-generation intent routing through the orchestrator
+- Document-type resolution for the supported `Contract` document type
+- Required-field detection from active template input placeholders
+- Conversational missing-field detection and accumulation from prior user turns
+- Template retrieval request (`GET /api/ai/templates/active?documentType={documentType}`)
+- Company-context retrieval for structured company fields
+- Focused RAG retrieval only when a template contains AI-generated legal/policy clause placeholders
+- Clause-only LLM generation from retrieved sources
+- Source attribution for each generated clause through existing `SourceSchema` metadata
+- Template placeholder filling and HTML validation
+- Document save request (`POST /api/documents/save`) — see §10.3 for the finalized request/response contract
+- Structured result response (`document_draft`)
+
+**.NET Backend owns:**
+- Template persistence, CRUD, activation, and versioning
+- Document persistence (`GENERATED_DOCUMENT` storage)
+- Document lifecycle (finalize, PDF generation, email/download)
+- Authorization for persisted resources
+
+### 8.2 Document Generation Flow
+
+```text
+HR -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> document_generation skill -> DocumentGenerationService
+```
+1. HR sends a chat message and `.NET` forwards it with the existing `conversationId` and internal identity headers.
+2. The orchestrator detects `document_generation` intent and executes the registered `document_generation` skill.
+3. `DocumentGenerationService` resolves employment-contract wording to the existing backend document type `Contract`.
+4. The service retrieves the active template with `GET /api/ai/templates/active?documentType=Contract`.
+5. The service classifies template placeholders as static text, user-provided input placeholders, or AI/RAG-generated clause placeholders such as `{{legal_clause:termination}}`, `{{policy_clause:working_hours}}`, and `{{legal_policy_clause:annual_leave}}`.
+6. The service rebuilds user-provided values from current and prior user messages in chat history; it does not persist document state locally.
+7. Structured company placeholders such as `company_name`, `tax_id`, `address`, `email`, and related fields are filled from `GET /api/ai/company-context`.
+8. Employee values are collected conversationally. The service does not search employees by name and does not treat `X-User-Id` as the target employee.
+9. If any required user/company field remains missing, the service returns the finalized structured `missing_fields` array and does not run RAG, render, or save.
+10. For each AI-generated legal clause placeholder, the service builds a focused query and retrieves labor-law knowledge through `KnowledgeRetrievalService` with global labor-law scope.
+11. For each AI-generated policy clause placeholder, the service retrieves company-policy knowledge through `KnowledgeRetrievalService` with the authenticated `companyId`.
+12. For mixed legal/policy clauses, both source categories must produce support; one category cannot silently replace the other.
+13. The clause-only LLM prompt receives document values, company context, employee/document context, retrieved chunks, and source metadata. It must return only `{ support, clause, source_ids }`.
+14. Generated clauses are inserted only after deterministic validation confirms non-empty content, source IDs from retrieved sources, no unresolved placeholders, no fabricated citation/meta-language, and no detectable unsupported numeric legal claims.
+15. Once all values and generated clauses are complete, the service substitutes escaped values into the backend template and validates that no placeholders remain unresolved.
+16. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, optional `employee_id`, optional `template_id`, and metadata that includes generated clause audit details.
+17. The orchestrator returns the existing `ChatResponse` shape with `result_card.type = "document_draft"` and top-level sources whose metadata includes the clause identifier.
+
+### 8.3 Important Constraints
+- **NO Target Employee Lookup:** The AI Server must NOT interpret `X-User-Id` as a target employee ID for generating a document, nor perform name-based employee lookup. The required employee information is supplied directly by the HR through the structured missing-fields conversational flow. Employee Context is only retrieved if the existing business logic requires the requester's context.
+- **New Employee Drafts:** Document Generation creates drafts for new employees who may not yet exist in the Wakeel employee system. Therefore `employee_id` is not inherently required. It is collected only when explicitly defined as a template placeholder such as `{{employee_id}}`.
+- **Requester Identity:** `X-User-Id` represents the authenticated requesting HR user, not the employee represented by the generated document.
+- **Strict Error Handling:** If a template is not found or a save request fails, the AI Server safely returns a structured application error. It will not generate an invented contract or falsely report a document was saved.
+- **Supported Type:** Current document generation supports the existing `Contract` backend type. Employment-contract language and `employment_contract` are aliases that resolve to `Contract`; unsupported document types are rejected instead of mapped to invented backend values.
+- **No Local Document Persistence:** Templates and generated drafts are never stored in AI-owned collections. Only normal chat history is stored, including optional chat metadata such as `missing_fields` and `result_card`.
+- **Template Categories:** Static template text is preserved exactly. Ordinary placeholders such as `{{employee_name}}`, `{{salary}}`, and `{{start_date}}` are user/company values. AI-generated placeholders must be explicit clause placeholders (`legal_clause`, `policy_clause`, or mixed legal/policy clause syntax) and are not returned as `missing_fields`.
+- **Grounding Failure:** If RAG returns no relevant sources, one required source category is missing, the LLM reports insufficient support, or validation rejects the generated clause, the service returns a structured error and does not call `POST /api/documents/save`.
+
+## 9. Error Handling
+AI Server internal errors use a structured format:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "ERROR_CODE",
+    "message": "Human readable message"
+  }
+}
+```
+The `.NET` gateway must translate these into the final client-facing envelope. Secrets and stack traces are never exposed.
+
+## 10. Formal Contracts (Schemas)
+
+### 10.1 `missing_fields`
+When the AI requires explicit input from the user (e.g., during document generation), it returns an array of:
+```json
+{
+  "field_name": "contract_type",
+  "input_type": "dropdown",
+  "label": "Contract Type",
+  "options": ["Full-time", "Part-time"]
+}
+```
+
+### 10.2 `result_card`
+The `result_card` returned in `ChatResponse` is a strictly typed discriminated union. The `type` field must be one of:
+- `calculation` (e.g., end_of_service_gratuity)
+- `document_draft` (returns `doc_id`, `doc_type`, `employee_name`)
+- `leave_draft` (returns `request_id`, `leave_type`, `start_date`, `end_date`, `days_requested`, `actions`)
+
+### 10.3 `POST /api/documents/save` Request (Finalized)
+Enforced by `DocumentSaveRequestSchema` in `src/integrations/wakeel/document-api.js` (`.strict()` — no undeclared fields accepted). Identity (`userId`, `companyId`, `role`) is intentionally **not** duplicated here; it is already trusted from the internal headers.
+```json
+{
+  "document_type": "Contract",
+  "title": "Employment Contract - Ahmed",
+  "content_html": "<p>...</p>",
+  "employee_id": "uuid",
+  "template_id": "uuid",
+  "metadata": { "any": "additional structured data" }
+}
+```
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `document_type` | string | yes | Matches the `document_type` used to fetch the active template. |
+| `title` | string | yes | Human-readable document title. |
+| `content_html` | string | yes | Fully rendered document content as HTML. |
+| `employee_id` | string | no | Optional existing employee record ID. New-employee contract drafts may omit it; never use the caller's `X-User-Id` as this value. |
+| `template_id` | string | no | The template used to generate this document, when applicable. |
+| `metadata` | object | no | Free-form structured data (e.g. filled placeholder values). Never used to carry identity. |
+
+Response (`DocumentSaveResponseSchema`, unchanged and already finalized):
+```json
+{ "success": true, "document_id": "uuid", "document_type": "Contract", "status": "Draft", "created_at": "2026-08-12T10:30:00Z" }
+```
+
+## 11. Known Unresolved Contracts
+*None. All previous integration gaps (`result_card`, `missing_fields`, `POST /api/documents/save` request/response, `conversationId` lifecycle, and template-fetch schemas) are now canonicalized within the AI Server. Both previously-identified implementation bugs (unauthenticated `/api/knowledge/ingest`, and the `executeWakeelRequest`/`wakeelFetch` export mismatch in `template-api.js`/`document-api.js`) have been fixed and covered by tests.*

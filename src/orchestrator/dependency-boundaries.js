@@ -1,8 +1,9 @@
 import { logger } from "../shared/logger.js";
+import { getEmployeeContext } from "../services/employee-context.service.js";
+import { getCompanyContext } from "../services/company-context.service.js";
 
 /**
  * Boundary for context gatherers (RAG, Employee, Company).
- * To be replaced or implemented by real services in future tasks.
  * 
  * @param {Array<string>} requiredContext - e.g., ["employee", "company", "rag"]
  * @param {import("../contracts/index.js").AIContext} userContext
@@ -14,13 +15,23 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
   if (!requiredContext) return gatheredData;
 
   if (requiredContext.includes("employee")) {
-    logger.info("[Orchestrator] Gathering employee context via boundary stub...");
-    gatheredData.employee = { role: userContext.role || "unknown", status: "active stub" };
+    logger.info("[Orchestrator] Gathering employee context via boundary...");
+    try {
+      gatheredData.employee = await getEmployeeContext(userContext);
+    } catch (err) {
+      logger.error(`[Orchestrator] Failed to gather employee context: ${err.message}`);
+      gatheredData.employee = { error: "Failed to retrieve employee context." };
+    }
   }
   
   if (requiredContext.includes("company")) {
-    logger.info("[Orchestrator] Gathering company context via boundary stub...");
-    gatheredData.company = { id: userContext.companyId || "unknown", details: "company stub" };
+    logger.info("[Orchestrator] Gathering company context via boundary...");
+    try {
+      gatheredData.company = await getCompanyContext(userContext);
+    } catch (err) {
+      logger.error(`[Orchestrator] Failed to gather company context: ${err.message}`);
+      gatheredData.company = { error: "Failed to retrieve company context." };
+    }
   }
 
   if (requiredContext.includes("rag")) {
@@ -33,6 +44,18 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
 
 import * as skillRegistry from "../skills/registry.js";
 import * as toolRegistry from "../tools/registry.js";
+import calculationSkill from "../skills/calculation/calculation.skill.js";
+import documentGenerationSkill from "../skills/document-generation/document-generation.skill.js";
+
+// Register known skills
+const registerKnownSkill = (skill) => {
+  if (!skillRegistry.has(skill.name)) {
+    skillRegistry.register(skill);
+  }
+};
+
+registerKnownSkill(calculationSkill);
+registerKnownSkill(documentGenerationSkill);
 
 /**
  * Boundary for the Skill/Tool registry.
