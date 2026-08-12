@@ -106,6 +106,7 @@ The AI Server route schema enforces `conversationId` as a required, non-empty st
 The AI Server leverages an Orchestrator/SkillRegistry architecture (`src/orchestrator/dependency-boundaries.js`). 
 - **Calculation Skill**: Evaluates mathematical intents deterministically and is isolated inside `src/skills/calculation/`. It relies on the orchestrator to fetch any context beforehand if needed, and uses LLM structured parsing only to identify operands.
 - **Document Generation Skill**: Registered as `document_generation` and isolated inside `src/skills/document-generation/`. It delegates to `DocumentGenerationService` and returns structured `missing_fields` or a `document_draft` result card through the existing `ChatResponse`.
+- **Leave Request Tool**: Registered as `leave_request` in the Tool Registry and routed from the `leave_request` intent. It delegates to `LeaveRequestService`, collects employee-facing leave fields over chat history, uses employee context/leave balance, and calls the actual .NET leave endpoints only after explicit creation intent.
 
 ## 8. Document Generation Architecture
 Document generation is implemented as a skill-driven capability. The AI Server handles intent routing, deterministic template processing, field collection, context retrieval, rendering, validation, and the save request. The .NET Backend remains the system of record for templates and generated documents.
@@ -165,6 +166,44 @@ HR -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> document_generation s
 - **Template Categories:** Static template text is preserved exactly. Ordinary placeholders such as `{{employee_name}}`, `{{salary}}`, and `{{start_date}}` are user/company values. AI-generated placeholders must be explicit clause placeholders (`legal_clause`, `policy_clause`, or mixed legal/policy clause syntax) and are not returned as `missing_fields`.
 - **Grounding Failure:** If RAG returns no relevant sources, one required source category is missing, the LLM reports insufficient support, or validation rejects the generated clause, the service returns a structured error and does not call `POST /api/documents/save`.
 
+## 8.4 Leave Request Tool Architecture
+
+Leave requests are employee-facing. The AI Server never approves or rejects leave; HR review remains entirely in the .NET backend and HR dashboard.
+
+```text
+Employee -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> leave_request tool -> LeaveRequestService -> .NET Leave API
+```
+
+**AI Server owns:**
+- `leave_request` intent routing through the existing orchestrator and Tool Registry.
+- Conversational field collection for `leave_type`, `start_date`, `end_date`, and optional `reason` from current/prior user messages.
+- Missing-field responses using the existing `missing_fields` contract.
+- Employee-context retrieval through the existing employee context service; the AI does not ask for, generate, or look up `employee_id`.
+- Advisory eligibility messaging from leave balance and, only when policy/legal reasoning is explicitly needed, RAG retrieval.
+- Calling create then submit when the employee explicitly asks to create/submit/request the leave.
+- Mapping known backend errors into safe AI messages without exposing stack traces.
+
+**.NET Backend owns:**
+- Leave request persistence and all transactional leave business rules.
+- Authenticated employee identity through the employee JWT claims (`user_id`, `company_id`, `role`) on the actual leave endpoints.
+- Draft creation: `POST /api/leave-requests`.
+- Draft submission: `PATCH /api/leave-requests/{request_id}/submit`.
+- Draft cancellation: `DELETE /api/leave-requests/{request_id}`.
+- HR approval/rejection: `PATCH /api/leave-requests/{request_id}`. The AI Server must never call this HR review endpoint.
+
+**Implemented lifecycle:**
+1. The AI collects `leave_type`, `start_date`, and `end_date`; `reason` is optional because the actual backend DTO makes it optional.
+2. For informational or eligibility questions, the AI does not create a leave request. It uses employee context/leave balance and optional RAG context to explain that backend validation remains authoritative.
+3. For explicit creation, the AI calls `POST /api/leave-requests`, expecting `{ request_id, status: "Draft", days_requested }`.
+4. The AI immediately calls `PATCH /api/leave-requests/{request_id}/submit`, expecting `{ request_id, status: "Pending" }`.
+5. The AI returns the existing `leave_draft` result card using known request values plus backend `request_id`/`days_requested`, with `actions: []` because the draft has already been submitted to Pending.
+
+**Attachment limitation:**
+Sick leave requires a medical report attachment at backend draft creation. The current `POST /api/ai/chat` route accepts JSON only (`{ message, conversationId }`) and has no file-upload mechanism. The LeaveRequestService therefore blocks Sick leave creation safely and tells the employee that the current chat flow cannot upload the required attachment.
+
+**Current integration blocker:**
+The actual backend leave endpoints require `Authorization: Bearer <employee JWT>`, but the current AI Server context only contains internal gateway identity headers (`X-User-Id`, `X-Company-Id`, `X-Role`) and does not include the employee JWT. The leave backend integration exists and is dependency-injectable, but it fails closed with `LEAVE_AUTH_TOKEN_UNAVAILABLE` until the gateway provides the real employee JWT or the backend exposes a documented internal AI leave endpoint.
+
 ## 9. Error Handling
 AI Server internal errors use a structured format:
 ```json
@@ -195,7 +234,7 @@ When the AI requires explicit input from the user (e.g., during document generat
 The `result_card` returned in `ChatResponse` is a strictly typed discriminated union. The `type` field must be one of:
 - `calculation` (e.g., end_of_service_gratuity)
 - `document_draft` (returns `doc_id`, `doc_type`, `employee_name`)
-- `leave_draft` (returns `request_id`, `leave_type`, `start_date`, `end_date`, `days_requested`, `actions`)
+- `leave_draft` (returns `request_id`, `leave_type`, `start_date`, `end_date`, `days_requested`, `attachment_uploaded`, `actions`)
 
 ### 10.3 `POST /api/documents/save` Request (Finalized)
 Enforced by `DocumentSaveRequestSchema` in `src/integrations/wakeel/document-api.js` (`.strict()` — no undeclared fields accepted). Identity (`userId`, `companyId`, `role`) is intentionally **not** duplicated here; it is already trusted from the internal headers.
@@ -224,4 +263,6 @@ Response (`DocumentSaveResponseSchema`, unchanged and already finalized):
 ```
 
 ## 11. Known Unresolved Contracts
-*None. All previous integration gaps (`result_card`, `missing_fields`, `POST /api/documents/save` request/response, `conversationId` lifecycle, and template-fetch schemas) are now canonicalized within the AI Server. Both previously-identified implementation bugs (unauthenticated `/api/knowledge/ingest`, and the `executeWakeelRequest`/`wakeelFetch` export mismatch in `template-api.js`/`document-api.js`) have been fixed and covered by tests.*
+- **Leave endpoint auth mismatch:** The actual .NET leave endpoints require Bearer employee JWT auth, while the current AI Server request context only receives trusted internal identity headers. Real end-to-end leave creation/submission is blocked until that JWT is available to the AI Server or the backend exposes a documented internal AI leave endpoint.
+- **Sick leave file upload:** The actual backend requires an attachment for Sick leave creation, but `POST /api/ai/chat` accepts JSON only. Sick leave creation is safely blocked in the AI Server until a real attachment flow is defined.
+- **Backend create content type mismatch:** The actual backend controller uses `[FromForm]` for `POST /api/leave-requests`; earlier API docs described JSON when no attachment is present. The AI integration follows the actual backend form contract.

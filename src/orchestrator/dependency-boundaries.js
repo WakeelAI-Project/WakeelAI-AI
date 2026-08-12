@@ -46,16 +46,24 @@ import * as skillRegistry from "../skills/registry.js";
 import * as toolRegistry from "../tools/registry.js";
 import calculationSkill from "../skills/calculation/calculation.skill.js";
 import documentGenerationSkill from "../skills/document-generation/document-generation.skill.js";
+import leaveRequestTool from "../tools/leave-request.tool.js";
 
-// Register known skills
+// Register known skills/tools
 const registerKnownSkill = (skill) => {
   if (!skillRegistry.has(skill.name)) {
     skillRegistry.register(skill);
   }
 };
 
+const registerKnownTool = (tool) => {
+  if (!toolRegistry.has(tool.name)) {
+    toolRegistry.register(tool);
+  }
+};
+
 registerKnownSkill(calculationSkill);
 registerKnownSkill(documentGenerationSkill);
+registerKnownTool(leaveRequestTool);
 
 /**
  * Boundary for the Skill/Tool registry.
