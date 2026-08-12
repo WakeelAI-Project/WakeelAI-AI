@@ -24,12 +24,18 @@ jest.unstable_mockModule("../src/services/document-generation.service.js", () =>
   generateDocument: mockGenerateDocument
 }));
 
+const mockHandleLeaveRequest = jest.fn();
+jest.unstable_mockModule("../src/services/leave-request.service.js", () => ({
+  handleLeaveRequest: mockHandleLeaveRequest
+}));
+
 const { handleChat } = await import("../src/orchestrator/orchestrator.service.js");
 
 describe("Orchestrator Service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGenerateDocument.mockReset();
+    mockHandleLeaveRequest.mockReset();
   });
 
   const baseInput = {
@@ -42,16 +48,18 @@ describe("Orchestrator Service", () => {
     }
   };
 
-  it("should process a request, determine intent, and return a final response", async () => {
+  it("should route legacy leave_request_tool capability to the leave_request tool", async () => {
     // 1st invoke: intent determination
     mockInvoke.mockResolvedValueOnce({
       intent: "leave_request",
       requiresCapabilities: ["leave_request_tool"],
       requiresContext: ["employee"]
     });
-    // 2nd invoke: final response
-    mockInvoke.mockResolvedValueOnce({
-      content: "Your leave balance is 10 days."
+    mockHandleLeaveRequest.mockResolvedValueOnce({
+      success: true,
+      status: "info",
+      message: "Your leave balance is 10 days.",
+      sources: []
     });
 
     const result = await handleChat(baseInput);
@@ -59,9 +67,12 @@ describe("Orchestrator Service", () => {
     expect(result.conversationId).toBe("conv-1");
     expect(result.type).toBe("text");
     expect(result.message).toBe("Your leave balance is 10 days.");
-    
-    // Ensure LLM was called twice
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
+    expect(result.actions).toEqual([]);
+    expect(mockHandleLeaveRequest).toHaveBeenCalledWith({
+      message: "I need to calculate my leave balance.",
+      aiContext: baseInput.context
+    });
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 
   it("should handle LLM fallback on intent failure", async () => {
@@ -168,6 +179,60 @@ describe("Orchestrator Service", () => {
       type: "action",
       sources: [],
       actions: [],
+      result_card: resultCard
+    });
+  });
+
+  it("should return leave_draft result card directly after leave submission", async () => {
+    const resultCard = {
+      type: "leave_draft",
+      request_id: "req-1",
+      leave_type: "Annual",
+      start_date: "2026-08-10",
+      end_date: "2026-08-12",
+      days_requested: 3,
+      attachment_uploaded: false,
+      actions: []
+    };
+
+    mockInvoke.mockResolvedValueOnce({
+      intent: "leave_request",
+      requiresCapabilities: [],
+      requiresContext: []
+    });
+    mockHandleLeaveRequest.mockResolvedValueOnce({
+      success: true,
+      status: "submitted",
+      message: "I've submitted your annual leave request. It is pending HR approval.",
+      sources: [],
+      result_card: resultCard,
+      action: {
+        type: "leave_request",
+        payload: {
+          request_id: "req-1",
+          status: "Pending"
+        }
+      }
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "Yes, create it."
+    });
+
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      conversationId: "conv-1",
+      message: "I've submitted your annual leave request. It is pending HR approval.",
+      type: "action",
+      sources: [],
+      actions: [{
+        type: "leave_request",
+        payload: {
+          request_id: "req-1",
+          status: "Pending"
+        }
+      }],
       result_card: resultCard
     });
   });

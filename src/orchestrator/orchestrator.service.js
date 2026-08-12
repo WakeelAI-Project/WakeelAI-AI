@@ -34,10 +34,14 @@ const intentLlm = llm.withStructuredOutput(IntentSchema, {
 });
 
 const DOCUMENT_GENERATION_CAPABILITY = "document_generation";
+const LEAVE_REQUEST_CAPABILITY = "leave_request";
+const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
 
 const normalizeIntent = (intent) => {
   const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
-    ? [...intent.requiresCapabilities]
+    ? intent.requiresCapabilities.map((capability) => (
+      capability === LEGACY_LEAVE_REQUEST_CAPABILITY ? LEAVE_REQUEST_CAPABILITY : capability
+    ))
     : [];
 
   if (
@@ -47,9 +51,16 @@ const normalizeIntent = (intent) => {
     requiresCapabilities.push(DOCUMENT_GENERATION_CAPABILITY);
   }
 
+  if (
+    intent?.intent === LEAVE_REQUEST_CAPABILITY
+    && !requiresCapabilities.includes(LEAVE_REQUEST_CAPABILITY)
+  ) {
+    requiresCapabilities.push(LEAVE_REQUEST_CAPABILITY);
+  }
+
   return {
     ...intent,
-    requiresCapabilities,
+    requiresCapabilities: [...new Set(requiresCapabilities)],
     requiresContext: Array.isArray(intent?.requiresContext) ? intent.requiresContext : [],
   };
 };
@@ -72,6 +83,37 @@ const buildDocumentGenerationResponse = (conversationId, skillResult) => {
     type: payload.result_card ? "action" : "text",
     sources: skillResult.sources || [],
     actions: skillResult.action ? [skillResult.action] : [],
+  };
+
+  if (payload.missing_fields) {
+    response.missing_fields = payload.missing_fields;
+  }
+
+  if (payload.result_card) {
+    response.result_card = payload.result_card;
+  }
+
+  return ChatResponseSchema.parse(response);
+};
+
+const getLeaveRequestToolResult = (capabilityResults) => {
+  const result = capabilityResults.find((candidate) => (
+    candidate.capability === LEAVE_REQUEST_CAPABILITY
+    && candidate.status === "success"
+    && candidate.data?.data?.type === LEAVE_REQUEST_CAPABILITY
+  ));
+
+  return result?.data || null;
+};
+
+const buildLeaveRequestResponse = (conversationId, toolResult) => {
+  const payload = toolResult.data || {};
+  const response = {
+    conversationId,
+    message: toolResult.message || "I could not complete the leave request.",
+    type: payload.result_card || toolResult.action ? "action" : "text",
+    sources: toolResult.sources || [],
+    actions: toolResult.action ? [toolResult.action] : [],
   };
 
   if (payload.missing_fields) {
@@ -138,6 +180,12 @@ export const handleChat = async ({ message, conversationId, context }) => {
     if (documentGenerationResult) {
       logger.info(`[Orchestrator] Returning structured document generation response for conversation: ${conversationId}`);
       return buildDocumentGenerationResponse(orchContext.conversationId, documentGenerationResult);
+    }
+
+    const leaveRequestResult = getLeaveRequestToolResult(orchContext.capabilityResults);
+    if (leaveRequestResult) {
+      logger.info(`[Orchestrator] Returning structured leave request response for conversation: ${conversationId}`);
+      return buildLeaveRequestResponse(orchContext.conversationId, leaveRequestResult);
     }
 
     // 5. Generate Final Response
