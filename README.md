@@ -20,8 +20,8 @@ Story 3.4
 └── 3.4.2 CompanyContextService                     ✅ DONE
 
 Story 3.5
-└── 3.5.1 CalculationService   ✅ DONE
+└── 3.5.1 CalculationService                        ✅ DONE
 
 Story 3.6
-└── 3.6.1 DocumentGenerationService   ✅ DONE
+└── 3.6.1 DocumentGenerationService                 ✅ DONE
 ```
