@@ -21,4 +21,7 @@ Story 3.4
 
 Story 3.5
 └── 3.5.1 CalculationService   ✅ DONE
+
+Story 3.6
+└── 3.6.1 DocumentGenerationService   ✅ DONE
 ```
