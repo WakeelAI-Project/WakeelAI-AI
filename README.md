@@ -26,4 +26,9 @@ Story 3.6
 └── 3.6.1 DocumentGenerationService                 ✅ DONE
 
 story 3.7 proccecing                                🔃🔃
+
+Story 3.8
+├── 3.8.1 LaborLawSkill                             ✅ DONE
+└── 3.8.2 PolicySkill                               ✅ DONE
+
 ```
