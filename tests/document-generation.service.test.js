@@ -35,6 +35,19 @@ describe("DocumentGenerationService", () => {
     ].join("\n"),
   };
 
+  const templateWithoutEmployeeId = {
+    ...template,
+    content_template: [
+      "<h1>Employment Contract</h1>",
+      "<p>Company: {{company_name}}</p>",
+      "<p>Employee: {{employee_name}}</p>",
+      "<p>Position: {{job_title}}</p>",
+      "<p>Salary: {{salary}}</p>",
+      "<p>Start: {{start_date}}</p>",
+      "<p>Hours: {{working_hours}}</p>",
+    ].join("\n"),
+  };
+
   const companyContext = {
     id: "company-1",
     name: "Wakeel AI",
@@ -183,7 +196,7 @@ describe("DocumentGenerationService", () => {
       });
 
       const result = await generateDocument({
-        message: "Create an employment contract. Employee ID is emp-123.",
+        message: "Create an employment contract.",
         aiContext,
       }, deps());
 
@@ -191,11 +204,69 @@ describe("DocumentGenerationService", () => {
       expect(getCompanyContextFn).not.toHaveBeenCalled();
       expect(retrieveKnowledgeFn).not.toHaveBeenCalled();
       expect(generateLegalClauseFn).not.toHaveBeenCalled();
-      expect(saveDocumentFn).toHaveBeenCalledWith(aiContext, expect.objectContaining({
+      const payload = saveDocumentFn.mock.calls[0][1];
+      expect(payload).toEqual(expect.objectContaining({
         title: "Employment Contract Draft",
-        employee_id: "emp-123",
         content_html: "<h1>Employment Contract</h1><p>Static terms.</p>",
       }));
+      expect(payload).not.toHaveProperty("employee_id");
+    });
+
+    it("succeeds for a new-employee contract template that does not contain employee_id", async () => {
+      getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed Mohamed as Software Engineer with salary 25000 starting September 1.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      expect(result.result_card).toEqual({
+        type: "document_draft",
+        doc_id: "doc-1",
+        doc_type: "Contract",
+        employee_name: "Ahmed Mohamed",
+      });
+
+      const payload = saveDocumentFn.mock.calls[0][1];
+      expect(payload).not.toHaveProperty("employee_id");
+      expect(payload.metadata.filled_fields).not.toHaveProperty("employee_id");
+      expect(payload.content_html).toContain("Employee: Ahmed Mohamed");
+      expect(payload.content_html).toContain("Position: Software Engineer");
+      expect(payload.content_html).toContain("Salary: 25000");
+      expect(payload.content_html).toContain("Start: 2026-09-01");
+    });
+
+    it("does not ask for employee_id when the active template does not contain it", async () => {
+      getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("missing_fields");
+      expect(result.missing_fields.map((field) => field.field_name)).toEqual([
+        "job_title",
+        "salary",
+        "start_date",
+      ]);
+    });
+
+    it("does not capture or forward employee_id unless the template explicitly requests it", async () => {
+      getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed Mohamed as Software Engineer with salary 25000 starting 2026-09-01. Employee ID is emp-should-not-be-used.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      const payload = saveDocumentFn.mock.calls[0][1];
+      expect(payload).not.toHaveProperty("employee_id");
+      expect(payload.metadata.filled_fields).not.toHaveProperty("employee_id");
+      expect(result.result_card).not.toHaveProperty("employee_id");
     });
 
     it("retrieves the active template, renders HTML, saves the draft, and returns document_draft result card", async () => {
@@ -347,6 +418,56 @@ describe("DocumentGenerationService", () => {
           source_ids: ["law-1:0"],
         }),
       ]);
+    });
+
+    it("generates RAG-grounded legal clauses without requiring employee_id", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...templateWithoutEmployeeId,
+        content_template: `${templateWithoutEmployeeId.content_template}\n<p>Legal: {{legal_clause:termination}}</p>`,
+      });
+      retrieveKnowledgeFn.mockResolvedValue({
+        chunks: [{
+          documentId: "law-1",
+          title: "Labor Law",
+          content: "Grounded legal clause support.",
+          sourceType: "labor-law",
+          scope: "global",
+          chunkIndex: 0,
+          similarityScore: 0.91,
+        }],
+        sources: [{
+          id: "law-1:0",
+          title: "Labor Law",
+          type: "labor-law",
+          content: "Grounded legal clause support.",
+          metadata: { sourceType: "labor-law", scope: "global" },
+        }],
+      });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "supported",
+        clause: "Grounded generated termination clause.",
+        source_ids: ["law-1:0"],
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed Mohamed as Software Engineer with salary 25000 starting 2026-09-01.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      expect(generateLegalClauseFn).toHaveBeenCalledWith(expect.objectContaining({
+        employeeContext: expect.not.objectContaining({
+          employee_id: expect.anything(),
+        }),
+        documentValues: expect.not.objectContaining({
+          employee_id: expect.anything(),
+        }),
+      }));
+
+      const payload = saveDocumentFn.mock.calls[0][1];
+      expect(payload).not.toHaveProperty("employee_id");
+      expect(payload.content_html).toContain("Grounded generated termination clause.");
+      expect(result.result_card).not.toHaveProperty("employee_id");
     });
 
     it("retrieves company-policy knowledge with tenant scope when the template requires policy content", async () => {

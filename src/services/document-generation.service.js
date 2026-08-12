@@ -247,7 +247,6 @@ const labelPatternForField = (fieldName) => escapeRegex(fieldName).replace(/_/g,
 const fieldMatchesRequestedSet = (fieldName, requestedFieldNames) => (
   requestedFieldNames.has(fieldName)
   || fieldName === "document_type"
-  || fieldName === "employee_id"
 );
 
 export function extractFieldValuesFromMessage(message, fieldNames = [], options = {}) {
@@ -430,13 +429,7 @@ const getDocumentTypeConfig = (documentType) => (
 );
 
 const requiredFieldsForTemplate = (placeholders) => {
-  const fields = [...placeholders];
-
-  if (!fields.includes("employee_id")) {
-    fields.push("employee_id");
-  }
-
-  return fields;
+  return [...placeholders];
 };
 
 const isCompanyContextField = (fieldName) => Object.hasOwn(COMPANY_FIELD_MAP, fieldName);
@@ -518,14 +511,21 @@ const getCompanyContextAndValues = async ({
   return { values, context: companyContext };
 };
 
-const buildEmployeeContextFromValues = (values) => ({
-  employee_id: values.employee_id,
-  employee_name: values.employee_name,
-  job_title: values.job_title,
-  salary: values.salary,
-  start_date: values.start_date,
-  working_hours: values.working_hours,
-});
+const buildEmployeeContextFromValues = (values) => {
+  const context = {
+    employee_name: values.employee_name,
+    job_title: values.job_title,
+    salary: values.salary,
+    start_date: values.start_date,
+    working_hours: values.working_hours,
+  };
+
+  if (hasValue(values.employee_id)) {
+    context.employee_id = values.employee_id;
+  }
+
+  return context;
+};
 
 const buildClauseRetrievalQuery = ({
   placeholder,
@@ -950,6 +950,51 @@ const createSaveError = (error) => {
   );
 };
 
+const buildDocumentSavePayload = ({
+  template,
+  title,
+  contentHtml,
+  finalValues,
+  placeholders,
+  placeholderSpecs,
+  generatedClauses,
+}) => {
+  const payload = {
+    document_type: template.document_type,
+    title,
+    content_html: contentHtml,
+    template_id: template.template_id || undefined,
+    metadata: {
+      template_name: template.name,
+      filled_fields: finalValues,
+      placeholders,
+      placeholder_specs: placeholderSpecs,
+      generated_clauses: generatedClauses,
+    },
+  };
+
+  if (hasValue(finalValues.employee_id)) {
+    payload.employee_id = String(finalValues.employee_id);
+  }
+
+  return payload;
+};
+
+const buildDocumentDraftResultCard = ({ saveResponse, finalValues }) => {
+  const resultCard = {
+    type: "document_draft",
+    doc_id: saveResponse.document_id,
+    doc_type: saveResponse.document_type,
+    employee_name: hasValue(finalValues.employee_name) ? String(finalValues.employee_name) : undefined,
+  };
+
+  if (hasValue(finalValues.employee_id)) {
+    resultCard.employee_id = String(finalValues.employee_id);
+  }
+
+  return ResultCardSchema.parse(resultCard);
+};
+
 /**
  * Generates a document draft through the finalized AI Server -> .NET contracts.
  *
@@ -1076,30 +1121,22 @@ export async function generateDocument(input, dependencies = {}) {
 
     let saveResponse;
     try {
-      saveResponse = await saveDocumentFn(aiContext, {
-        document_type: template.document_type,
+      saveResponse = await saveDocumentFn(aiContext, buildDocumentSavePayload({
+        template,
         title,
-        content_html: contentHtml,
-        employee_id: String(finalValues.employee_id),
-        template_id: template.template_id || undefined,
-        metadata: {
-          template_name: template.name,
-          filled_fields: finalValues,
-          placeholders,
-          placeholder_specs: placeholderSpecs,
-          generated_clauses: clauseGeneration.generatedClauses,
-        },
-      });
+        contentHtml,
+        finalValues,
+        placeholders,
+        placeholderSpecs,
+        generatedClauses: clauseGeneration.generatedClauses,
+      }));
     } catch (error) {
       return createErrorResult(createSaveError(error));
     }
 
-    const resultCard = ResultCardSchema.parse({
-      type: "document_draft",
-      doc_id: saveResponse.document_id,
-      doc_type: saveResponse.document_type,
-      employee_id: String(finalValues.employee_id),
-      employee_name: hasValue(finalValues.employee_name) ? String(finalValues.employee_name) : undefined,
+    const resultCard = buildDocumentDraftResultCard({
+      saveResponse,
+      finalValues,
     });
 
     return {

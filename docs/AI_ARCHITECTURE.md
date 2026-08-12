@@ -152,11 +152,13 @@ HR -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> document_generation s
 13. The clause-only LLM prompt receives document values, company context, employee/document context, retrieved chunks, and source metadata. It must return only `{ support, clause, source_ids }`.
 14. Generated clauses are inserted only after deterministic validation confirms non-empty content, source IDs from retrieved sources, no unresolved placeholders, no fabricated citation/meta-language, and no detectable unsupported numeric legal claims.
 15. Once all values and generated clauses are complete, the service substitutes escaped values into the backend template and validates that no placeholders remain unresolved.
-16. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, `employee_id`, optional `template_id`, and metadata that includes generated clause audit details.
+16. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, optional `employee_id`, optional `template_id`, and metadata that includes generated clause audit details.
 17. The orchestrator returns the existing `ChatResponse` shape with `result_card.type = "document_draft"` and top-level sources whose metadata includes the clause identifier.
 
 ### 8.3 Important Constraints
 - **NO Target Employee Lookup:** The AI Server must NOT interpret `X-User-Id` as a target employee ID for generating a document, nor perform name-based employee lookup. The required employee information is supplied directly by the HR through the structured missing-fields conversational flow. Employee Context is only retrieved if the existing business logic requires the requester's context.
+- **New Employee Drafts:** Document Generation creates drafts for new employees who may not yet exist in the Wakeel employee system. Therefore `employee_id` is not inherently required. It is collected only when explicitly defined as a template placeholder such as `{{employee_id}}`.
+- **Requester Identity:** `X-User-Id` represents the authenticated requesting HR user, not the employee represented by the generated document.
 - **Strict Error Handling:** If a template is not found or a save request fails, the AI Server safely returns a structured application error. It will not generate an invented contract or falsely report a document was saved.
 - **Supported Type:** Current document generation supports the existing `Contract` backend type. Employment-contract language and `employment_contract` are aliases that resolve to `Contract`; unsupported document types are rejected instead of mapped to invented backend values.
 - **No Local Document Persistence:** Templates and generated drafts are never stored in AI-owned collections. Only normal chat history is stored, including optional chat metadata such as `missing_fields` and `result_card`.
@@ -212,7 +214,7 @@ Enforced by `DocumentSaveRequestSchema` in `src/integrations/wakeel/document-api
 | `document_type` | string | yes | Matches the `document_type` used to fetch the active template. |
 | `title` | string | yes | Human-readable document title. |
 | `content_html` | string | yes | Fully rendered document content as HTML. |
-| `employee_id` | string | yes | The **target** employee the document is about — never the caller's identity. |
+| `employee_id` | string | no | Optional existing employee record ID. New-employee contract drafts may omit it; never use the caller's `X-User-Id` as this value. |
 | `template_id` | string | no | The template used to generate this document, when applicable. |
 | `metadata` | object | no | Free-form structured data (e.g. filled placeholder values). Never used to carry identity. |
 

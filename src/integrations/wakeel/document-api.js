@@ -15,9 +15,9 @@ export const DocumentSaveRequestSchema = z.object({
   title: z.string().trim().min(1, "title is required"),
   // The fully rendered document content, as HTML.
   content_html: z.string().trim().min(1, "content_html is required"),
-  // The target employee this document is about. NOT the caller's identity
-  // (the caller/requester identity is already carried by X-User-Id).
-  employee_id: z.string().trim().min(1, "employee_id is required"),
+  // Optional target employee record when one already exists. New-employee
+  // contract drafts often do not have a Wakeel employee record yet.
+  employee_id: z.string().trim().min(1).optional(),
   // The template used to generate this document, when applicable.
   template_id: z.string().trim().min(1).optional(),
   // Free-form structured metadata captured during generation (e.g. filled

@@ -62,8 +62,26 @@ describe("Document Save API Integration", () => {
     expect(result).toEqual(mockResponse);
   });
 
+  it("should accept a payload without employee_id for a new-employee document draft", async () => {
+    const mockResponse = {
+      success: true,
+      document_id: "doc-125",
+      document_type: "Contract",
+      status: "Draft",
+      created_at: "2026-08-12T10:30:00Z"
+    };
+    const { employee_id, ...payloadWithoutEmployeeId } = validPayload;
+
+    wakeelFetch.mockResolvedValue(mockResponse);
+
+    const result = await saveDocument(aiContext, payloadWithoutEmployeeId);
+
+    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/documents/save", aiContext, payloadWithoutEmployeeId);
+    expect(result).toEqual(mockResponse);
+  });
+
   it("should reject a payload missing required fields before calling the backend", async () => {
-    const { employee_id, ...invalidPayload } = validPayload;
+    const { content_html, ...invalidPayload } = validPayload;
 
     await expect(saveDocument(aiContext, invalidPayload)).rejects.toThrow(/Invalid document save payload/);
     expect(wakeelFetch).not.toHaveBeenCalled();
