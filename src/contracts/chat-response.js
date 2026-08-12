@@ -12,7 +12,7 @@ export const MissingFieldSchema = z.object({
 export const CalculationResultCardSchema = z.object({
   type: z.literal("calculation"),
   calculation_type: z.string(),
-  inputs: z.record(z.unknown()),
+  inputs: z.record(z.string(), z.unknown()),
   result: z.number(),
   currency: z.string().optional(),
   breakdown: z.array(z.unknown()).optional()

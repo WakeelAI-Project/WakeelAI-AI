@@ -19,11 +19,17 @@ jest.unstable_mockModule("@langchain/openai", () => ({
   }))
 }));
 
+const mockGenerateDocument = jest.fn();
+jest.unstable_mockModule("../src/services/document-generation.service.js", () => ({
+  generateDocument: mockGenerateDocument
+}));
+
 const { handleChat } = await import("../src/orchestrator/orchestrator.service.js");
 
 describe("Orchestrator Service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockGenerateDocument.mockReset();
   });
 
   const baseInput = {
@@ -85,5 +91,84 @@ describe("Orchestrator Service", () => {
     const result = await handleChat(baseInput);
 
     expect(result.message).toBe("An internal error occurred while processing your request.");
+  });
+
+  it("should return structured missing fields directly for document generation", async () => {
+    const missingFields = [{
+      field_name: "employee_id",
+      input_type: "text",
+      label: "Employee ID",
+      options: []
+    }];
+
+    mockInvoke.mockResolvedValueOnce({
+      intent: "document_generation",
+      requiresCapabilities: [],
+      requiresContext: []
+    });
+    mockGenerateDocument.mockResolvedValueOnce({
+      success: true,
+      status: "missing_fields",
+      message: "I can create that draft, but I need a few required fields first.",
+      missing_fields: missingFields,
+      sources: []
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "Create an employment contract for Ahmed"
+    });
+
+    expect(mockGenerateDocument).toHaveBeenCalledWith({
+      message: "Create an employment contract for Ahmed",
+      aiContext: baseInput.context
+    });
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      conversationId: "conv-1",
+      message: "I can create that draft, but I need a few required fields first.",
+      type: "text",
+      sources: [],
+      actions: [],
+      missing_fields: missingFields
+    });
+  });
+
+  it("should return document_draft result card directly after document save", async () => {
+    const resultCard = {
+      type: "document_draft",
+      doc_id: "doc-1",
+      doc_type: "Contract",
+      employee_id: "emp-1",
+      employee_name: "Ahmed"
+    };
+
+    mockInvoke.mockResolvedValueOnce({
+      intent: "document_generation",
+      requiresCapabilities: ["document_generation"],
+      requiresContext: []
+    });
+    mockGenerateDocument.mockResolvedValueOnce({
+      success: true,
+      status: "saved",
+      message: "I've created and saved Employment Contract - Ahmed as a draft.",
+      sources: [],
+      result_card: resultCard
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "Create an employment contract for Ahmed"
+    });
+
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({
+      conversationId: "conv-1",
+      message: "I've created and saved Employment Contract - Ahmed as a draft.",
+      type: "action",
+      sources: [],
+      actions: [],
+      result_card: resultCard
+    });
   });
 });
