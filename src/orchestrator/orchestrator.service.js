@@ -210,12 +210,21 @@ Respond with a clear and concise final answer.
 
     logger.info(`[Orchestrator] Finished orchestration for conversation: ${conversationId}`);
 
+    const allSources = [];
+    if (Array.isArray(orchContext.capabilityResults)) {
+      orchContext.capabilityResults.forEach((res) => {
+        if (res.status === "success" && res.data?.sources && Array.isArray(res.data.sources)) {
+          allSources.push(...res.data.sources);
+        }
+      });
+    }
+
     // Return using the shared ChatResponse shape
     return {
       conversationId: orchContext.conversationId,
       message: finalResponse.content,
       type: "text",
-      sources: [], // Will be populated in Task 3.4
+      sources: allSources,
       actions: []  // Will be populated in Task 3.9
     };
   } catch (error) {

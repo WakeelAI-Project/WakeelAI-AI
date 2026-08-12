@@ -46,6 +46,8 @@ import * as skillRegistry from "../skills/registry.js";
 import * as toolRegistry from "../tools/registry.js";
 import calculationSkill from "../skills/calculation/calculation.skill.js";
 import documentGenerationSkill from "../skills/document-generation/document-generation.skill.js";
+import laborLawSkill from "../skills/labor-law/labor-law.skill.js";
+import companyPolicySkill from "../skills/company-policy/company-policy.skill.js";
 import leaveRequestTool from "../tools/leave-request.tool.js";
 
 // Register known skills/tools
@@ -63,6 +65,8 @@ const registerKnownTool = (tool) => {
 
 registerKnownSkill(calculationSkill);
 registerKnownSkill(documentGenerationSkill);
+registerKnownSkill(laborLawSkill);
+registerKnownSkill(companyPolicySkill);
 registerKnownTool(leaveRequestTool);
 
 /**
