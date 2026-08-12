@@ -115,11 +115,13 @@ Document generation is implemented as a skill-driven capability. The AI Server h
 **AI Server owns:**
 - Document-generation intent routing through the orchestrator
 - Document-type resolution for the supported `Contract` document type
-- Required-field detection from active template placeholders
+- Required-field detection from active template input placeholders
 - Conversational missing-field detection and accumulation from prior user turns
 - Template retrieval request (`GET /api/ai/templates/active?documentType={documentType}`)
 - Company-context retrieval for structured company fields
-- RAG retrieval only when a template contains legal/law/statutory/mandatory or policy placeholders
+- Focused RAG retrieval only when a template contains AI-generated legal/policy clause placeholders
+- Clause-only LLM generation from retrieved sources
+- Source attribution for each generated clause through existing `SourceSchema` metadata
 - Template placeholder filling and HTML validation
 - Document save request (`POST /api/documents/save`) — see §10.3 for the finalized request/response contract
 - Structured result response (`document_draft`)
@@ -139,22 +141,27 @@ HR -> .NET Backend -> POST /api/ai/chat -> Orchestrator -> document_generation s
 2. The orchestrator detects `document_generation` intent and executes the registered `document_generation` skill.
 3. `DocumentGenerationService` resolves employment-contract wording to the existing backend document type `Contract`.
 4. The service retrieves the active template with `GET /api/ai/templates/active?documentType=Contract`.
-5. The service extracts deterministic `{{placeholder}}` fields and adds `employee_id` because the finalized save contract requires it.
+5. The service classifies template placeholders as static text, user-provided input placeholders, or AI/RAG-generated clause placeholders such as `{{legal_clause:termination}}`, `{{policy_clause:working_hours}}`, and `{{legal_policy_clause:annual_leave}}`.
 6. The service rebuilds user-provided values from current and prior user messages in chat history; it does not persist document state locally.
 7. Structured company placeholders such as `company_name`, `tax_id`, `address`, `email`, and related fields are filled from `GET /api/ai/company-context`.
 8. Employee values are collected conversationally. The service does not search employees by name and does not treat `X-User-Id` as the target employee.
-9. If a legal/law/statutory/mandatory placeholder exists, the service retrieves labor-law knowledge through `KnowledgeRetrievalService` with global labor-law scope.
-10. If a policy placeholder exists, the service retrieves company-policy knowledge through `KnowledgeRetrievalService` with the authenticated `companyId`.
-11. If any required field remains missing, the service returns the finalized structured `missing_fields` array and does not render or save.
-12. Once complete, the service substitutes escaped values into the backend template and validates that no placeholders remain unresolved.
-13. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, `employee_id`, optional `template_id`, and metadata.
-14. The orchestrator returns the existing `ChatResponse` shape with `result_card.type = "document_draft"` after a successful save.
+9. If any required user/company field remains missing, the service returns the finalized structured `missing_fields` array and does not run RAG, render, or save.
+10. For each AI-generated legal clause placeholder, the service builds a focused query and retrieves labor-law knowledge through `KnowledgeRetrievalService` with global labor-law scope.
+11. For each AI-generated policy clause placeholder, the service retrieves company-policy knowledge through `KnowledgeRetrievalService` with the authenticated `companyId`.
+12. For mixed legal/policy clauses, both source categories must produce support; one category cannot silently replace the other.
+13. The clause-only LLM prompt receives document values, company context, employee/document context, retrieved chunks, and source metadata. It must return only `{ support, clause, source_ids }`.
+14. Generated clauses are inserted only after deterministic validation confirms non-empty content, source IDs from retrieved sources, no unresolved placeholders, no fabricated citation/meta-language, and no detectable unsupported numeric legal claims.
+15. Once all values and generated clauses are complete, the service substitutes escaped values into the backend template and validates that no placeholders remain unresolved.
+16. The service posts the draft to `.NET` via `POST /api/documents/save` using `document_type`, deterministic `title`, `content_html`, `employee_id`, optional `template_id`, and metadata that includes generated clause audit details.
+17. The orchestrator returns the existing `ChatResponse` shape with `result_card.type = "document_draft"` and top-level sources whose metadata includes the clause identifier.
 
 ### 8.3 Important Constraints
 - **NO Target Employee Lookup:** The AI Server must NOT interpret `X-User-Id` as a target employee ID for generating a document, nor perform name-based employee lookup. The required employee information is supplied directly by the HR through the structured missing-fields conversational flow. Employee Context is only retrieved if the existing business logic requires the requester's context.
 - **Strict Error Handling:** If a template is not found or a save request fails, the AI Server safely returns a structured application error. It will not generate an invented contract or falsely report a document was saved.
 - **Supported Type:** Current document generation supports the existing `Contract` backend type. Employment-contract language and `employment_contract` are aliases that resolve to `Contract`; unsupported document types are rejected instead of mapped to invented backend values.
 - **No Local Document Persistence:** Templates and generated drafts are never stored in AI-owned collections. Only normal chat history is stored, including optional chat metadata such as `missing_fields` and `result_card`.
+- **Template Categories:** Static template text is preserved exactly. Ordinary placeholders such as `{{employee_name}}`, `{{salary}}`, and `{{start_date}}` are user/company values. AI-generated placeholders must be explicit clause placeholders (`legal_clause`, `policy_clause`, or mixed legal/policy clause syntax) and are not returned as `missing_fields`.
+- **Grounding Failure:** If RAG returns no relevant sources, one required source category is missing, the LLM reports insufficient support, or validation rejects the generated clause, the service returns a structured error and does not call `POST /api/documents/save`.
 
 ## 9. Error Handling
 AI Server internal errors use a structured format:

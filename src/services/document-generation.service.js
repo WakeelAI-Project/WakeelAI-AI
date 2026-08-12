@@ -4,6 +4,7 @@ import { saveDocument } from "../integrations/wakeel/document-api.js";
 import { getCompanyContext } from "./company-context.service.js";
 import { getHistory } from "./chat-history.service.js";
 import { retrieveKnowledge } from "../rag/retrieval/knowledge-retrieval.service.js";
+import { generateLegalClause } from "../llm/legal-clause-generator.js";
 import { MissingFieldSchema, ResultCardSchema, SourceSchema } from "../contracts/index.js";
 import { logger } from "../shared/logger.js";
 
@@ -23,6 +24,20 @@ const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([
   { keyword: /\bwarning\b/i, document_type: "Warning" },
   { keyword: /\btermination\b/i, document_type: "Termination" },
 ]);
+
+const AI_GENERATED_PLACEHOLDER_PREFIXES = Object.freeze({
+  legal_clause: Object.freeze(["labor-law"]),
+  policy_clause: Object.freeze(["company-policy"]),
+  legal_policy_clause: Object.freeze(["labor-law", "company-policy"]),
+  legal_and_policy_clause: Object.freeze(["labor-law", "company-policy"]),
+});
+
+const LEGACY_AI_GENERATED_PLACEHOLDERS = Object.freeze({
+  legal_clause: Object.freeze(["labor-law"]),
+  policy_clause: Object.freeze(["company-policy"]),
+});
+
+const MAX_GENERATED_CLAUSE_CHARACTERS = 3000;
 
 const COMPANY_FIELD_MAP = Object.freeze({
   company_name: "name",
@@ -315,7 +330,66 @@ export function resolveDocumentTypeFromMessages(messages) {
   return { missing: true };
 }
 
-export function extractPlaceholders(contentTemplate) {
+const getClauseSourceTypeLabel = (sourceTypes) => {
+  if (sourceTypes.length === 2) return "labor_law_and_company_policy";
+  return sourceTypes[0] === "labor-law" ? "labor_law" : "company_policy";
+};
+
+const parsePlaceholderToken = (token) => {
+  const fieldName = token.trim();
+  const aiMatch = fieldName.match(/^([A-Za-z][A-Za-z0-9_]*):([A-Za-z][A-Za-z0-9_]*)$/);
+
+  if (aiMatch) {
+    const [, prefix, clauseKey] = aiMatch;
+    const sourceTypes = AI_GENERATED_PLACEHOLDER_PREFIXES[prefix];
+
+    if (!sourceTypes) {
+      throw createDomainError(
+        "TEMPLATE_SCHEMA_INVALID",
+        `Invalid AI-generated placeholder: ${fieldName}`,
+        502
+      );
+    }
+
+    return {
+      name: fieldName,
+      kind: "ai_generated",
+      placeholder_type: prefix,
+      clause_key: clauseKey,
+      source_types: [...sourceTypes],
+      source_type: getClauseSourceTypeLabel(sourceTypes),
+      description: `Generate the ${clauseKey.replace(/_/g, " ")} clause`,
+    };
+  }
+
+  if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(fieldName)) {
+    throw createDomainError(
+      "TEMPLATE_SCHEMA_INVALID",
+      `Invalid placeholder name: ${fieldName}`,
+      502
+    );
+  }
+
+  const legacySourceTypes = LEGACY_AI_GENERATED_PLACEHOLDERS[fieldName];
+  if (legacySourceTypes) {
+    return {
+      name: fieldName,
+      kind: "ai_generated",
+      placeholder_type: fieldName,
+      clause_key: fieldName,
+      source_types: [...legacySourceTypes],
+      source_type: getClauseSourceTypeLabel(legacySourceTypes),
+      description: `Generate the ${fieldName.replace(/_/g, " ")} clause`,
+    };
+  }
+
+  return {
+    name: fieldName,
+    kind: "input",
+  };
+};
+
+export function parseTemplatePlaceholders(contentTemplate) {
   if (typeof contentTemplate !== "string" || contentTemplate.trim().length === 0) {
     throw createDomainError(
       "TEMPLATE_SCHEMA_INVALID",
@@ -327,18 +401,10 @@ export function extractPlaceholders(contentTemplate) {
   const placeholders = [];
   const placeholderPattern = /\{\{\s*([^{}]+?)\s*\}\}/g;
   const consumedTemplate = contentTemplate.replace(placeholderPattern, (fullMatch, rawFieldName) => {
-    const fieldName = rawFieldName.trim();
+    const placeholder = parsePlaceholderToken(rawFieldName);
 
-    if (!/^[A-Za-z][A-Za-z0-9_]*$/.test(fieldName)) {
-      throw createDomainError(
-        "TEMPLATE_SCHEMA_INVALID",
-        `Invalid placeholder name: ${fieldName}`,
-        502
-      );
-    }
-
-    if (!placeholders.includes(fieldName)) {
-      placeholders.push(fieldName);
+    if (!placeholders.some((candidate) => candidate.name === placeholder.name)) {
+      placeholders.push(placeholder);
     }
 
     return "";
@@ -353,6 +419,10 @@ export function extractPlaceholders(contentTemplate) {
   }
 
   return placeholders;
+}
+
+export function extractPlaceholders(contentTemplate) {
+  return parseTemplatePlaceholders(contentTemplate).map((placeholder) => placeholder.name);
 }
 
 const getDocumentTypeConfig = (documentType) => (
@@ -371,17 +441,15 @@ const requiredFieldsForTemplate = (placeholders) => {
 
 const isCompanyContextField = (fieldName) => Object.hasOwn(COMPANY_FIELD_MAP, fieldName);
 
-const isLaborLawField = (fieldName) => /(legal|law|statutory|mandatory)/i.test(fieldName);
-
-const isCompanyPolicyField = (fieldName) => /policy/i.test(fieldName);
-
-const isRagField = (fieldName) => isLaborLawField(fieldName) || isCompanyPolicyField(fieldName);
+const clauseRequiresCompanyPolicy = (placeholder) => (
+  placeholder.source_types.includes("company-policy")
+);
 
 const selectUserSuppliedFields = (values, requiredFields) => {
   const result = {};
 
   for (const fieldName of requiredFields) {
-    if (STRICT_COMPANY_FIELDS.has(fieldName) || isRagField(fieldName)) continue;
+    if (STRICT_COMPANY_FIELDS.has(fieldName)) continue;
 
     if (hasValue(values[fieldName])) {
       result[fieldName] = values[fieldName];
@@ -411,9 +479,21 @@ const collectValuesFromMessages = (messages, requiredFields, options = {}) => {
   return collected;
 };
 
-const getCompanyValues = async ({ requiredFields, aiContext, getCompanyContextFn }) => {
+const getCompanyContextAndValues = async ({
+  requiredFields,
+  aiGeneratedPlaceholders,
+  aiContext,
+  getCompanyContextFn,
+}) => {
   const companyFields = requiredFields.filter(isCompanyContextField);
-  if (companyFields.length === 0) return {};
+  const needsCompanyContext = (
+    companyFields.length > 0
+    || aiGeneratedPlaceholders.some(clauseRequiresCompanyPolicy)
+  );
+
+  if (!needsCompanyContext) {
+    return { values: {}, context: null };
+  }
 
   let companyContext;
   try {
@@ -435,54 +515,104 @@ const getCompanyValues = async ({ requiredFields, aiContext, getCompanyContextFn
     }
   }
 
-  return values;
+  return { values, context: companyContext };
 };
 
-const getKnowledgeValues = async ({ requiredFields, documentType, aiContext, retrieveKnowledgeFn }) => {
-  const ragFields = requiredFields.filter(isRagField);
-  if (ragFields.length === 0) {
-    return { values: {}, sources: [] };
-  }
+const buildEmployeeContextFromValues = (values) => ({
+  employee_id: values.employee_id,
+  employee_name: values.employee_name,
+  job_title: values.job_title,
+  salary: values.salary,
+  start_date: values.start_date,
+  working_hours: values.working_hours,
+});
 
-  const values = {};
+const buildClauseRetrievalQuery = ({
+  placeholder,
+  sourceType,
+  documentType,
+  values,
+  companyContext,
+}) => {
+  const clausePurpose = placeholder.clause_key.replace(/_/g, " ");
+  const sourceFocus = sourceType === "labor-law"
+    ? "Egyptian labor law"
+    : "company policy";
+
+  return [
+    sourceFocus,
+    documentType,
+    clausePurpose,
+    values.job_title,
+    values.working_hours,
+    companyContext?.industry,
+  ]
+    .filter(hasValue)
+    .join(" ");
+};
+
+const formatClauseSources = ({ sources, placeholder, sourceType }) => (
+  sources.map((source) => SourceSchema.parse({
+    ...source,
+    type: source.type || sourceType,
+    metadata: {
+      ...(source.metadata || {}),
+      clause_id: placeholder.name,
+      clause_key: placeholder.clause_key,
+      clause_placeholder_type: placeholder.placeholder_type,
+      clause_source_type: sourceType,
+    },
+  }))
+);
+
+const hasSufficientRetrievedSupport = ({ chunks, sources }) => (
+  chunks.some((chunk) => hasValue(chunk?.content))
+  && sources.length > 0
+);
+
+const retrieveClauseKnowledge = async ({
+  placeholder,
+  documentType,
+  values,
+  companyContext,
+  aiContext,
+  retrieveKnowledgeFn,
+}) => {
+  const chunks = [];
   const sources = [];
-
-  const retrievalPlans = [];
-  if (ragFields.some(isLaborLawField)) {
-    retrievalPlans.push({ sourceType: "labor-law", fields: ragFields.filter(isLaborLawField) });
-  }
-
-  if (ragFields.some(isCompanyPolicyField)) {
-    retrievalPlans.push({ sourceType: "company-policy", fields: ragFields.filter(isCompanyPolicyField) });
-  }
+  const supportBySourceType = {};
 
   try {
-    for (const plan of retrievalPlans) {
+    for (const sourceType of placeholder.source_types) {
       const retrieval = await retrieveKnowledgeFn({
-        query: `${documentType} ${plan.fields.join(" ")}`,
+        query: buildClauseRetrievalQuery({
+          placeholder,
+          sourceType,
+          documentType,
+          values,
+          companyContext,
+        }),
         context: {
-          sourceType: plan.sourceType,
-          companyId: plan.sourceType === "company-policy" ? aiContext.companyId : undefined,
+          sourceType,
+          companyId: sourceType === "company-policy" ? aiContext.companyId : undefined,
           topK: 3,
         },
       });
 
-      const chunks = Array.isArray(retrieval?.chunks) ? retrieval.chunks : [];
+      const retrievedChunks = Array.isArray(retrieval?.chunks) ? retrieval.chunks : [];
       const retrievedSources = Array.isArray(retrieval?.sources) ? retrieval.sources : [];
-      sources.push(...retrievedSources.map((source) => SourceSchema.parse(source)));
 
-      if (chunks.length === 0) continue;
-
-      const groundedText = chunks
-        .map((chunk) => chunk.content)
-        .filter(hasValue)
-        .join("\n\n");
-
-      if (!hasValue(groundedText)) continue;
-
-      for (const fieldName of plan.fields) {
-        values[fieldName] = groundedText;
-      }
+      chunks.push(...retrievedChunks);
+      const formattedSources = formatClauseSources({
+        sources: retrievedSources,
+        placeholder,
+        sourceType,
+      });
+      sources.push(...formattedSources);
+      supportBySourceType[sourceType] = hasSufficientRetrievedSupport({
+        chunks: retrievedChunks,
+        sources: formattedSources,
+      });
     }
   } catch (error) {
     logger.error(`[DocumentGenerationService] Knowledge retrieval failed: ${error.message}`);
@@ -493,7 +623,201 @@ const getKnowledgeValues = async ({ requiredFields, documentType, aiContext, ret
     );
   }
 
-  return { values, sources };
+  const hasSupportForEverySourceType = placeholder.source_types.every((sourceType) => (
+    supportBySourceType[sourceType]
+  ));
+
+  if (!hasSupportForEverySourceType || !hasSufficientRetrievedSupport({ chunks, sources })) {
+    throw createDomainError(
+      "INSUFFICIENT_SOURCE_SUPPORT",
+      `I could not find enough retrieved source support to generate ${placeholder.name}.`,
+      424
+    );
+  }
+
+  return { chunks, sources };
+};
+
+const sourceTextFor = (sources) => sources
+  .map((source) => source.content)
+  .filter(hasValue)
+  .join("\n");
+
+const documentValueTextFor = (values) => Object.values(values)
+  .filter(hasValue)
+  .join(" ");
+
+const extractNumbers = (text) => String(text).match(/\b\d+(?:\.\d+)?\b/g) || [];
+
+const hasUnsupportedNumericClaim = ({ clause, sources, values }) => {
+  const supportText = `${sourceTextFor(sources)} ${documentValueTextFor(values)}`;
+  const uniqueNumbers = [...new Set(extractNumbers(clause))];
+
+  return uniqueNumbers.some((number) => !supportText.includes(number));
+};
+
+const validateGeneratedClause = ({
+  generatedClause,
+  placeholder,
+  sources,
+  values,
+}) => {
+  if (generatedClause.support !== "supported") {
+    throw createDomainError(
+      "INSUFFICIENT_SOURCE_SUPPORT",
+      `Retrieved sources were insufficient to generate ${placeholder.name}.`,
+      424
+    );
+  }
+
+  const clause = generatedClause.clause?.trim();
+  if (!hasValue(clause)) {
+    throw createDomainError(
+      "CLAUSE_GENERATION_FAILED",
+      `The generated clause for ${placeholder.name} was empty.`,
+      502
+    );
+  }
+
+  if (clause.length > MAX_GENERATED_CLAUSE_CHARACTERS) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_VALIDATION_FAILED",
+      `The generated clause for ${placeholder.name} was too long.`,
+      502
+    );
+  }
+
+  if (/\{\{|\}\}/.test(clause)) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_VALIDATION_FAILED",
+      `The generated clause for ${placeholder.name} contains unsupported placeholders.`,
+      502
+    );
+  }
+
+  if (/<\s*(html|body|h1)\b/i.test(clause)) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_VALIDATION_FAILED",
+      `The generated clause for ${placeholder.name} appears to contain document-level markup.`,
+      502
+    );
+  }
+
+  if (/(according to the ai|retrieved documents say|provided sources say|as an ai|source id|citation)/i.test(clause)) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_VALIDATION_FAILED",
+      `The generated clause for ${placeholder.name} contains unsupported meta-language.`,
+      502
+    );
+  }
+
+  const availableSourceIds = new Set(sources.map((source) => source.id));
+  const sourceIds = Array.isArray(generatedClause.source_ids)
+    ? generatedClause.source_ids
+    : [];
+
+  if (sourceIds.length === 0 || sourceIds.some((sourceId) => !availableSourceIds.has(sourceId))) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_VALIDATION_FAILED",
+      `The generated clause for ${placeholder.name} does not cite retrieved sources.`,
+      502
+    );
+  }
+
+  const usedSources = sources.filter((source) => sourceIds.includes(source.id));
+  if (hasUnsupportedNumericClaim({ clause, sources: usedSources, values })) {
+    throw createDomainError(
+      "GENERATED_CLAUSE_UNSUPPORTED_CONTENT",
+      `The generated clause for ${placeholder.name} contains a numeric claim not supported by sources or document values.`,
+      502
+    );
+  }
+
+  return {
+    content: clause,
+    source_ids: [...new Set(sourceIds)],
+    sources: usedSources,
+  };
+};
+
+const generateAiClauseValues = async ({
+  aiGeneratedPlaceholders,
+  documentType,
+  values,
+  companyContext,
+  aiContext,
+  retrieveKnowledgeFn,
+  generateLegalClauseFn,
+}) => {
+  if (aiGeneratedPlaceholders.length === 0) {
+    return { values: {}, sources: [], generatedClauses: [] };
+  }
+
+  const clauseValues = {};
+  const sources = [];
+  const generatedClauses = [];
+  const employeeContext = buildEmployeeContextFromValues(values);
+
+  for (const placeholder of aiGeneratedPlaceholders) {
+    const retrieved = await retrieveClauseKnowledge({
+      placeholder,
+      documentType,
+      values,
+      companyContext,
+      aiContext,
+      retrieveKnowledgeFn,
+    });
+
+    let generatedClause;
+    try {
+      generatedClause = await generateLegalClauseFn({
+        clause: placeholder,
+        documentType,
+        documentValues: values,
+        companyContext,
+        employeeContext,
+        chunks: retrieved.chunks,
+        sources: retrieved.sources,
+      });
+    } catch (error) {
+      logger.error(`[DocumentGenerationService] Clause generation failed: ${error.message}`);
+      throw createDomainError(
+        "CLAUSE_GENERATION_FAILED",
+        `I could not generate ${placeholder.name} from the retrieved sources.`,
+        502
+      );
+    }
+
+    const validatedClause = validateGeneratedClause({
+      generatedClause,
+      placeholder,
+      sources: retrieved.sources,
+      values,
+    });
+
+    clauseValues[placeholder.name] = validatedClause.content;
+    sources.push(...validatedClause.sources);
+    generatedClauses.push({
+      clause_id: placeholder.name,
+      clause_key: placeholder.clause_key,
+      placeholder_type: placeholder.placeholder_type,
+      source_type: placeholder.source_type,
+      content: validatedClause.content,
+      source_ids: validatedClause.source_ids,
+      sources: validatedClause.sources.map((source) => ({
+        id: source.id,
+        title: source.title,
+        type: source.type,
+        metadata: source.metadata || {},
+      })),
+    });
+  }
+
+  return {
+    values: clauseValues,
+    sources,
+    generatedClauses,
+  };
 };
 
 export function renderTemplate(contentTemplate, values) {
@@ -652,6 +976,7 @@ export async function generateDocument(input, dependencies = {}) {
     getCompanyContextFn = getCompanyContext,
     getConversationHistoryFn = getHistory,
     retrieveKnowledgeFn = retrieveKnowledge,
+    generateLegalClauseFn = generateLegalClause,
     baseDate = new Date(),
   } = dependencies;
 
@@ -699,27 +1024,28 @@ export async function generateDocument(input, dependencies = {}) {
       ));
     }
 
-    const placeholders = extractPlaceholders(template.content_template);
-    const requiredFields = requiredFieldsForTemplate(placeholders);
+    const placeholderSpecs = parseTemplatePlaceholders(template.content_template);
+    const inputPlaceholders = placeholderSpecs
+      .filter((placeholder) => placeholder.kind === "input")
+      .map((placeholder) => placeholder.name);
+    const aiGeneratedPlaceholders = placeholderSpecs.filter((placeholder) => (
+      placeholder.kind === "ai_generated"
+    ));
+    const placeholders = placeholderSpecs.map((placeholder) => placeholder.name);
+    const requiredFields = requiredFieldsForTemplate(inputPlaceholders);
 
     const collectedUserValues = collectValuesFromMessages(messages, requiredFields, { baseDate });
     const userValues = selectUserSuppliedFields(collectedUserValues, requiredFields);
-    const companyValues = await getCompanyValues({
+    const company = await getCompanyContextAndValues({
       requiredFields,
+      aiGeneratedPlaceholders,
       aiContext,
       getCompanyContextFn,
     });
-    const knowledge = await getKnowledgeValues({
-      requiredFields,
-      documentType,
-      aiContext,
-      retrieveKnowledgeFn,
-    });
 
     const values = {
-      ...companyValues,
+      ...company.values,
       ...userValues,
-      ...knowledge.values,
     };
 
     const missingFields = buildMissingFields(requiredFields, values);
@@ -730,8 +1056,23 @@ export async function generateDocument(input, dependencies = {}) {
       );
     }
 
-    const contentHtml = renderTemplate(template.content_template, values);
-    const title = buildDocumentTitle(documentType, values);
+    const clauseGeneration = await generateAiClauseValues({
+      aiGeneratedPlaceholders,
+      documentType,
+      values,
+      companyContext: company.context,
+      aiContext,
+      retrieveKnowledgeFn,
+      generateLegalClauseFn,
+    });
+
+    const finalValues = {
+      ...values,
+      ...clauseGeneration.values,
+    };
+
+    const contentHtml = renderTemplate(template.content_template, finalValues);
+    const title = buildDocumentTitle(documentType, finalValues);
 
     let saveResponse;
     try {
@@ -739,12 +1080,14 @@ export async function generateDocument(input, dependencies = {}) {
         document_type: template.document_type,
         title,
         content_html: contentHtml,
-        employee_id: String(values.employee_id),
+        employee_id: String(finalValues.employee_id),
         template_id: template.template_id || undefined,
         metadata: {
           template_name: template.name,
-          filled_fields: values,
+          filled_fields: finalValues,
           placeholders,
+          placeholder_specs: placeholderSpecs,
+          generated_clauses: clauseGeneration.generatedClauses,
         },
       });
     } catch (error) {
@@ -755,15 +1098,15 @@ export async function generateDocument(input, dependencies = {}) {
       type: "document_draft",
       doc_id: saveResponse.document_id,
       doc_type: saveResponse.document_type,
-      employee_id: String(values.employee_id),
-      employee_name: hasValue(values.employee_name) ? String(values.employee_name) : undefined,
+      employee_id: String(finalValues.employee_id),
+      employee_name: hasValue(finalValues.employee_name) ? String(finalValues.employee_name) : undefined,
     });
 
     return {
       success: true,
       status: "saved",
       message: `I've created and saved ${title} as a draft.`,
-      sources: knowledge.sources,
+      sources: clauseGeneration.sources,
       result_card: resultCard,
       document: {
         document_id: saveResponse.document_id,

@@ -4,6 +4,7 @@ import {
   extractFieldValuesFromMessage,
   extractPlaceholders,
   generateDocument,
+  parseTemplatePlaceholders,
   renderTemplate,
   resolveDocumentTypeFromMessages,
 } from "../src/services/document-generation.service.js";
@@ -60,6 +61,7 @@ describe("DocumentGenerationService", () => {
   let getCompanyContextFn;
   let retrieveKnowledgeFn;
   let getConversationHistoryFn;
+  let generateLegalClauseFn;
 
   beforeEach(() => {
     getActiveTemplateFn = jest.fn().mockResolvedValue(template);
@@ -67,6 +69,11 @@ describe("DocumentGenerationService", () => {
     getCompanyContextFn = jest.fn().mockResolvedValue(companyContext);
     retrieveKnowledgeFn = jest.fn().mockResolvedValue({ chunks: [], sources: [] });
     getConversationHistoryFn = jest.fn().mockResolvedValue({ messages: [] });
+    generateLegalClauseFn = jest.fn().mockResolvedValue({
+      support: "supported",
+      clause: "Grounded generated clause.",
+      source_ids: ["law-1:0"],
+    });
   });
 
   const deps = () => ({
@@ -75,6 +82,7 @@ describe("DocumentGenerationService", () => {
     getCompanyContextFn,
     retrieveKnowledgeFn,
     getConversationHistoryFn,
+    generateLegalClauseFn,
     baseDate,
   });
 
@@ -82,6 +90,38 @@ describe("DocumentGenerationService", () => {
     it("extracts valid placeholders once in template order", () => {
       expect(extractPlaceholders("<p>{{employee_name}}</p><p>{{ employee_name }}</p><p>{{salary}}</p>"))
         .toEqual(["employee_name", "salary"]);
+    });
+
+    it("classifies input and AI-generated placeholders", () => {
+      expect(parseTemplatePlaceholders([
+        "{{employee_name}}",
+        "{{legal_clause:probation}}",
+        "{{policy_clause:working_hours}}",
+        "{{legal_policy_clause:annual_leave}}",
+      ].join("\n"))).toEqual([
+        { name: "employee_name", kind: "input" },
+        expect.objectContaining({
+          name: "legal_clause:probation",
+          kind: "ai_generated",
+          clause_key: "probation",
+          source_types: ["labor-law"],
+          source_type: "labor_law",
+        }),
+        expect.objectContaining({
+          name: "policy_clause:working_hours",
+          kind: "ai_generated",
+          clause_key: "working_hours",
+          source_types: ["company-policy"],
+          source_type: "company_policy",
+        }),
+        expect.objectContaining({
+          name: "legal_policy_clause:annual_leave",
+          kind: "ai_generated",
+          clause_key: "annual_leave",
+          source_types: ["labor-law", "company-policy"],
+          source_type: "labor_law_and_company_policy",
+        }),
+      ]);
     });
 
     it("returns no placeholders for static templates", () => {
@@ -136,6 +176,28 @@ describe("DocumentGenerationService", () => {
   });
 
   describe("generation flow", () => {
+    it("renders a static-only template without company context, RAG, or LLM generation", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: "<h1>Employment Contract</h1><p>Static terms.</p>",
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      expect(getCompanyContextFn).not.toHaveBeenCalled();
+      expect(retrieveKnowledgeFn).not.toHaveBeenCalled();
+      expect(generateLegalClauseFn).not.toHaveBeenCalled();
+      expect(saveDocumentFn).toHaveBeenCalledWith(aiContext, expect.objectContaining({
+        title: "Employment Contract Draft",
+        employee_id: "emp-123",
+        content_html: "<h1>Employment Contract</h1><p>Static terms.</p>",
+      }));
+    });
+
     it("retrieves the active template, renders HTML, saves the draft, and returns document_draft result card", async () => {
       const result = await generateDocument({
         message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123, working hours are 10 to 6.",
@@ -220,10 +282,10 @@ describe("DocumentGenerationService", () => {
       expect(saveDocumentFn).not.toHaveBeenCalled();
     });
 
-    it("retrieves labor-law knowledge only when the template requires a legal placeholder", async () => {
+    it("retrieves labor-law knowledge and generates a grounded legal clause for an AI placeholder", async () => {
       getActiveTemplateFn.mockResolvedValue({
         ...template,
-        content_template: `${template.content_template}\n<p>Legal: {{legal_clause}}</p>`,
+        content_template: `${template.content_template}\n<p>Legal: {{legal_clause:termination}}</p>`,
       });
       retrieveKnowledgeFn.mockResolvedValue({
         chunks: [{
@@ -251,22 +313,46 @@ describe("DocumentGenerationService", () => {
 
       expect(result.success).toBe(true);
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith({
-        query: "Contract legal_clause",
+        query: "Egyptian labor law Contract termination Backend Developer 9 to 5 HR Tech",
         context: {
           sourceType: "labor-law",
           companyId: undefined,
           topK: 3,
         },
       });
+      expect(generateLegalClauseFn).toHaveBeenCalledWith(expect.objectContaining({
+        clause: expect.objectContaining({
+          name: "legal_clause:termination",
+          kind: "ai_generated",
+          source_types: ["labor-law"],
+          clause_key: "termination",
+        }),
+        documentType: "Contract",
+        sources: expect.arrayContaining([
+          expect.objectContaining({
+            id: "law-1:0",
+            metadata: expect.objectContaining({
+              clause_id: "legal_clause:termination",
+              clause_source_type: "labor-law",
+            }),
+          }),
+        ]),
+      }));
       expect(saveDocumentFn.mock.calls[0][1].content_html)
-        .toContain("Grounded legal clause from retrieved labor law.");
+        .toContain("Grounded generated clause.");
       expect(result.sources).toHaveLength(1);
+      expect(saveDocumentFn.mock.calls[0][1].metadata.generated_clauses).toEqual([
+        expect.objectContaining({
+          clause_id: "legal_clause:termination",
+          source_ids: ["law-1:0"],
+        }),
+      ]);
     });
 
     it("retrieves company-policy knowledge with tenant scope when the template requires policy content", async () => {
       getActiveTemplateFn.mockResolvedValue({
         ...template,
-        content_template: `${template.content_template}\n<p>Policy: {{policy_clause}}</p>`,
+        content_template: `${template.content_template}\n<p>Policy: {{policy_clause:working_hours}}</p>`,
       });
       retrieveKnowledgeFn.mockResolvedValue({
         chunks: [{
@@ -287,6 +373,11 @@ describe("DocumentGenerationService", () => {
           metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
         }],
       });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "supported",
+        clause: "Grounded company policy working-hours clause.",
+        source_ids: ["policy-1:0"],
+      });
 
       const result = await generateDocument({
         message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
@@ -295,21 +386,152 @@ describe("DocumentGenerationService", () => {
 
       expect(result.success).toBe(true);
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith({
-        query: "Contract policy_clause",
+        query: "company policy Contract working hours Backend Developer 9 to 5 HR Tech",
         context: {
           sourceType: "company-policy",
           companyId: "company-1",
           topK: 3,
         },
       });
+      expect(generateLegalClauseFn).toHaveBeenCalledWith(expect.objectContaining({
+        clause: expect.objectContaining({
+          name: "policy_clause:working_hours",
+          source_types: ["company-policy"],
+        }),
+      }));
       expect(saveDocumentFn.mock.calls[0][1].content_html)
-        .toContain("Grounded company policy clause.");
+        .toContain("Grounded company policy working-hours clause.");
     });
 
-    it("does not invent legal content when retrieval has no grounded chunks", async () => {
+    it("processes multiple AI-generated clauses independently", async () => {
       getActiveTemplateFn.mockResolvedValue({
         ...template,
-        content_template: `${template.content_template}\n<p>Legal: {{legal_clause}}</p>`,
+        content_template: [
+          template.content_template,
+          "<p>Probation: {{legal_clause:probation}}</p>",
+          "<p>Termination: {{legal_clause:termination}}</p>",
+          "<p>Hours Policy: {{policy_clause:working_hours}}</p>",
+        ].join("\n"),
+      });
+
+      retrieveKnowledgeFn.mockImplementation(async ({ context }) => {
+        if (context.sourceType === "company-policy") {
+          return {
+            chunks: [{
+              documentId: "policy-1",
+              title: "Working Hours Policy",
+              content: "Company policy support for working hours.",
+              sourceType: "company-policy",
+              scope: "company",
+              companyId: "company-1",
+              chunkIndex: 0,
+              similarityScore: 0.9,
+            }],
+            sources: [{
+              id: "policy-1:0",
+              title: "Working Hours Policy",
+              type: "company-policy",
+              content: "Company policy support for working hours.",
+              metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
+            }],
+          };
+        }
+
+        const callIndex = retrieveKnowledgeFn.mock.calls.length;
+        return {
+          chunks: [{
+            documentId: "law-1",
+            title: "Labor Law",
+            content: `Labor-law support ${callIndex}.`,
+            sourceType: "labor-law",
+            scope: "global",
+            chunkIndex: callIndex,
+            similarityScore: 0.91,
+          }],
+          sources: [{
+            id: `law-1:${callIndex}`,
+            title: "Labor Law",
+            type: "labor-law",
+            content: `Labor-law support ${callIndex}.`,
+            metadata: { sourceType: "labor-law", scope: "global" },
+          }],
+        };
+      });
+
+      generateLegalClauseFn.mockImplementation(async ({ clause, sources }) => ({
+        support: "supported",
+        clause: `Generated ${clause.clause_key} clause.`,
+        source_ids: [sources[0].id],
+      }));
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(true);
+      expect(retrieveKnowledgeFn).toHaveBeenCalledTimes(3);
+      expect(generateLegalClauseFn).toHaveBeenCalledTimes(3);
+
+      const html = saveDocumentFn.mock.calls[0][1].content_html;
+      expect(html).toContain("Generated probation clause.");
+      expect(html).toContain("Generated termination clause.");
+      expect(html).toContain("Generated working_hours clause.");
+      expect(saveDocumentFn.mock.calls[0][1].metadata.generated_clauses).toHaveLength(3);
+    });
+
+    it("retrieves both labor-law and company-policy sources for a mixed AI clause", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: `${template.content_template}\n<p>Leave: {{legal_policy_clause:annual_leave}}</p>`,
+      });
+
+      retrieveKnowledgeFn.mockImplementation(async ({ context }) => {
+        if (context.sourceType === "labor-law") {
+          return {
+            chunks: [{
+              documentId: "law-annual",
+              title: "Labor Law Annual Leave",
+              content: "Labor law support for annual leave.",
+              sourceType: "labor-law",
+              scope: "global",
+              chunkIndex: 0,
+              similarityScore: 0.91,
+            }],
+            sources: [{
+              id: "law-annual:0",
+              title: "Labor Law Annual Leave",
+              type: "labor-law",
+              content: "Labor law support for annual leave.",
+              metadata: { sourceType: "labor-law", scope: "global" },
+            }],
+          };
+        }
+
+        return {
+          chunks: [{
+            documentId: "policy-annual",
+            title: "Company Annual Leave Policy",
+            content: "Company policy support for annual leave.",
+            sourceType: "company-policy",
+            scope: "company",
+            companyId: "company-1",
+            chunkIndex: 0,
+            similarityScore: 0.88,
+          }],
+          sources: [{
+            id: "policy-annual:0",
+            title: "Company Annual Leave Policy",
+            type: "company-policy",
+            content: "Company policy support for annual leave.",
+            metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
+          }],
+        };
+      });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "supported",
+        clause: "Grounded annual leave clause from law and policy.",
+        source_ids: ["law-annual:0", "policy-annual:0"],
       });
 
       const result = await generateDocument({
@@ -317,8 +539,157 @@ describe("DocumentGenerationService", () => {
         aiContext,
       }, deps());
 
-      expect(result.status).toBe("missing_fields");
-      expect(result.missing_fields.map((field) => field.field_name)).toContain("legal_clause");
+      expect(result.success).toBe(true);
+      expect(retrieveKnowledgeFn).toHaveBeenCalledWith(expect.objectContaining({
+        context: expect.objectContaining({ sourceType: "labor-law", companyId: undefined }),
+      }));
+      expect(retrieveKnowledgeFn).toHaveBeenCalledWith(expect.objectContaining({
+        context: expect.objectContaining({ sourceType: "company-policy", companyId: "company-1" }),
+      }));
+      expect(generateLegalClauseFn).toHaveBeenCalledWith(expect.objectContaining({
+        clause: expect.objectContaining({
+          source_types: ["labor-law", "company-policy"],
+          source_type: "labor_law_and_company_policy",
+        }),
+        sources: expect.arrayContaining([
+          expect.objectContaining({ id: "law-annual:0" }),
+          expect.objectContaining({ id: "policy-annual:0" }),
+        ]),
+      }));
+      expect(result.sources.map((source) => source.id)).toEqual(["law-annual:0", "policy-annual:0"]);
+    });
+
+    it("does not invent legal content when retrieval has no grounded chunks", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: `${template.content_template}\n<p>Legal: {{legal_clause:annual_leave}}</p>`,
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.status).toBe("error");
+      expect(result.error.code).toBe("INSUFFICIENT_SOURCE_SUPPORT");
+      expect(generateLegalClauseFn).not.toHaveBeenCalled();
+      expect(saveDocumentFn).not.toHaveBeenCalled();
+    });
+
+    it("stops when the LLM reports insufficient source support", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: `${template.content_template}\n<p>Legal: {{legal_clause:annual_leave}}</p>`,
+      });
+      retrieveKnowledgeFn.mockResolvedValue({
+        chunks: [{
+          documentId: "law-1",
+          title: "Labor Law",
+          content: "General employment source without enough annual leave detail.",
+          sourceType: "labor-law",
+          scope: "global",
+          chunkIndex: 0,
+          similarityScore: 0.8,
+        }],
+        sources: [{
+          id: "law-1:0",
+          title: "Labor Law",
+          type: "labor-law",
+          content: "General employment source without enough annual leave detail.",
+          metadata: { sourceType: "labor-law", scope: "global" },
+        }],
+      });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "insufficient_source_support",
+        clause: "",
+        source_ids: [],
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(false);
+      expect(result.error.code).toBe("INSUFFICIENT_SOURCE_SUPPORT");
+      expect(saveDocumentFn).not.toHaveBeenCalled();
+    });
+
+    it("fails validation when a generated clause contains unsupported placeholders", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: `${template.content_template}\n<p>Legal: {{legal_clause:probation}}</p>`,
+      });
+      retrieveKnowledgeFn.mockResolvedValue({
+        chunks: [{
+          documentId: "law-1",
+          title: "Labor Law",
+          content: "Grounded probation support.",
+          sourceType: "labor-law",
+          scope: "global",
+          chunkIndex: 0,
+          similarityScore: 0.91,
+        }],
+        sources: [{
+          id: "law-1:0",
+          title: "Labor Law",
+          type: "labor-law",
+          content: "Grounded probation support.",
+          metadata: { sourceType: "labor-law", scope: "global" },
+        }],
+      });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "supported",
+        clause: "Probation applies to {{unknown_field}}.",
+        source_ids: ["law-1:0"],
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(false);
+      expect(result.error.code).toBe("GENERATED_CLAUSE_VALIDATION_FAILED");
+      expect(saveDocumentFn).not.toHaveBeenCalled();
+    });
+
+    it("rejects detectable unsupported numeric legal statements", async () => {
+      getActiveTemplateFn.mockResolvedValue({
+        ...template,
+        content_template: `${template.content_template}\n<p>Leave: {{legal_clause:annual_leave}}</p>`,
+      });
+      retrieveKnowledgeFn.mockResolvedValue({
+        chunks: [{
+          documentId: "law-1",
+          title: "Labor Law",
+          content: "The source discusses annual leave but does not establish a 21 day entitlement.",
+          sourceType: "labor-law",
+          scope: "global",
+          chunkIndex: 0,
+          similarityScore: 0.91,
+        }],
+        sources: [{
+          id: "law-1:0",
+          title: "Labor Law",
+          type: "labor-law",
+          content: "The source discusses annual leave but does not establish a day entitlement.",
+          metadata: { sourceType: "labor-law", scope: "global" },
+        }],
+      });
+      generateLegalClauseFn.mockResolvedValue({
+        support: "supported",
+        clause: "The employee is entitled to 21 days of annual leave.",
+        source_ids: ["law-1:0"],
+      });
+
+      const result = await generateDocument({
+        message: "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01. Employee ID is emp-123.",
+        aiContext,
+      }, deps());
+
+      expect(result.success).toBe(false);
+      expect(result.error.code).toBe("GENERATED_CLAUSE_UNSUPPORTED_CONTENT");
       expect(saveDocumentFn).not.toHaveBeenCalled();
     });
 
