@@ -22,6 +22,17 @@ describe("POST /api/knowledge/ingest", () => {
     content: "Document text for ingestion.",
   };
 
+  const validHeaders = {
+    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-User-Id": "user-456",
+    "X-Company-Id": "company-789",
+    "X-Role": "Company_Owner",
+  };
+
+  beforeAll(() => {
+    process.env.WAKEEL_INTERNAL_API_KEY = "your_internal_api_key_here";
+  });
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockIngestKnowledgeDocument.mockResolvedValue({
@@ -31,9 +42,33 @@ describe("POST /api/knowledge/ingest", () => {
     });
   });
 
+  it("rejects a request missing the internal API key", async () => {
+    const response = await request(app)
+      .post("/api/knowledge/ingest")
+      .send(validPayload);
+
+    expect(response.status).toBe(401);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe("UNAUTHORIZED_SERVICE");
+    expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
+  });
+
+  it("rejects a request missing identity headers", async () => {
+    const response = await request(app)
+      .post("/api/knowledge/ingest")
+      .set("X-Internal-API-Key", "your_internal_api_key_here")
+      .send(validPayload);
+
+    expect(response.status).toBe(400);
+    expect(response.body.success).toBe(false);
+    expect(response.body.error.code).toBe("MISSING_IDENTITY_HEADERS");
+    expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
+  });
+
   it("accepts a valid labor-law ingestion request", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
+      .set(validHeaders)
       .send(validPayload);
 
     expect(response.status).toBe(200);
@@ -54,6 +89,7 @@ describe("POST /api/knowledge/ingest", () => {
 
     const response = await request(app)
       .post("/api/knowledge/ingest")
+      .set(validHeaders)
       .send(payload);
 
     expect(response.status).toBe(200);
@@ -64,6 +100,7 @@ describe("POST /api/knowledge/ingest", () => {
   it("rejects an invalid sourceType", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
+      .set(validHeaders)
       .send({ ...validPayload, sourceType: "unknown" });
 
     expect(response.status).toBe(400);
@@ -77,6 +114,7 @@ describe("POST /api/knowledge/ingest", () => {
 
     const response = await request(app)
       .post("/api/knowledge/ingest")
+      .set(validHeaders)
       .send(payload);
 
     expect(response.status).toBe(400);
@@ -88,6 +126,7 @@ describe("POST /api/knowledge/ingest", () => {
   it("rejects empty content", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
+      .set(validHeaders)
       .send({ ...validPayload, content: "   " });
 
     expect(response.status).toBe(400);

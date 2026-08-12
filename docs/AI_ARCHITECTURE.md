@@ -80,15 +80,25 @@ When a skill requires context to answer a user's prompt, the AI Server makes syn
 ## 6. API Endpoint Inventory (Canonical Contracts)
 
 ### Internal AI Routes (Served by AI Server)
-- **`POST /api/ai/chat`**: 
+- **`POST /api/ai/chat`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role`)
   - Body: `{ message, conversationId }`
   - Response: `{ conversationId, message, type, sources, actions, missing_fields, result_card }`
-- **`GET /api/ai/chat/history`**:
-  - Query Parameters: `conversationId`, `page`, `limit`
+- **`GET /api/ai/chat/history`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role`)
+  - Query Parameters: `conversationId` (required), `page`, `limit`
 
 ### Knowledge Ingestion (Served by AI Server)
-- **`POST /api/knowledge/ingest`**:
+- **`POST /api/knowledge/ingest`**: (requires `X-Internal-API-Key`, `X-User-Id`, `X-Company-Id`, `X-Role` — `requireInternalAuth` is applied to this route)
   - Body Fields Include: `sourceType` (formerly `knowledgeType`), `companyId`, `documentId`, `title`, `content`.
+
+### 6.1 `conversationId` Lifecycle (Finalized)
+The AI Server **never generates** a `conversationId`. `.NET` owns generation:
+1. Client starts a new conversation with no `conversation_id`.
+2. `.NET` generates a new `conversationId` (UUID) and includes it in the `POST /api/ai/chat` body sent to the AI Server.
+3. The AI Server persists messages under that exact `conversationId` and returns it unchanged in the response.
+4. `.NET` returns the `conversationId` to the client (as `conversation_id`) so it can be reused on subsequent turns and passed to `GET /chat/history`.
+5. History and ownership are always scoped by `conversationId + userId + companyId` (see `chat-history.repository.js:findConversation`).
+
+The AI Server route schema enforces `conversationId` as a required, non-empty string on both `POST /api/ai/chat` and `GET /api/ai/chat/history` — a request without one is rejected with `400` before any orchestration happens.
 
 ## 7. Skill/Tool Architecture
 
@@ -109,7 +119,7 @@ The AI Server leverages an Orchestrator/SkillRegistry architecture (`src/orchest
 - Company-context retrieval
 - RAG retrieval when legal/policy grounding is required
 - Document content generation & template placeholder filling
-- Document save request (`POST /api/documents/save`)
+- Document save request (`POST /api/documents/save`) — see §10.3 for the finalized request/response contract
 - Structured result response (`document_draft`)
 
 **.NET Backend owns:**
@@ -170,5 +180,31 @@ The `result_card` returned in `ChatResponse` is a strictly typed discriminated u
 - `document_draft` (returns `doc_id`, `doc_type`, `employee_name`)
 - `leave_draft` (returns `request_id`, `leave_type`, `start_date`, `end_date`, `days_requested`, `actions`)
 
+### 10.3 `POST /api/documents/save` Request (Finalized)
+Enforced by `DocumentSaveRequestSchema` in `src/integrations/wakeel/document-api.js` (`.strict()` — no undeclared fields accepted). Identity (`userId`, `companyId`, `role`) is intentionally **not** duplicated here; it is already trusted from the internal headers.
+```json
+{
+  "document_type": "Contract",
+  "title": "Employment Contract - Ahmed",
+  "content_html": "<p>...</p>",
+  "employee_id": "uuid",
+  "template_id": "uuid",
+  "metadata": { "any": "additional structured data" }
+}
+```
+| Field | Type | Required | Notes |
+| --- | --- | --- | --- |
+| `document_type` | string | yes | Matches the `document_type` used to fetch the active template. |
+| `title` | string | yes | Human-readable document title. |
+| `content_html` | string | yes | Fully rendered document content as HTML. |
+| `employee_id` | string | yes | The **target** employee the document is about — never the caller's identity. |
+| `template_id` | string | no | The template used to generate this document, when applicable. |
+| `metadata` | object | no | Free-form structured data (e.g. filled placeholder values). Never used to carry identity. |
+
+Response (`DocumentSaveResponseSchema`, unchanged and already finalized):
+```json
+{ "success": true, "document_id": "uuid", "document_type": "Contract", "status": "Draft", "created_at": "2026-08-12T10:30:00Z" }
+```
+
 ## 11. Known Unresolved Contracts
-*None. All previous integration gaps (`result_card`, `missing_fields`, `POST /api/documents/save`, and template-fetch schemas) are now canonicalized within the AI Server.*
+*None. All previous integration gaps (`result_card`, `missing_fields`, `POST /api/documents/save` request/response, `conversationId` lifecycle, and template-fetch schemas) are now canonicalized within the AI Server. Both previously-identified implementation bugs (unauthenticated `/api/knowledge/ingest`, and the `executeWakeelRequest`/`wakeelFetch` export mismatch in `template-api.js`/`document-api.js`) have been fixed and covered by tests.*

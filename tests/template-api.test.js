@@ -1,10 +1,10 @@
 import { jest } from "@jest/globals";
 
 jest.unstable_mockModule("../src/integrations/wakeel/wakeel-client.js", () => ({
-  executeWakeelRequest: jest.fn()
+  wakeelFetch: jest.fn()
 }));
 
-const { executeWakeelRequest } = await import("../src/integrations/wakeel/wakeel-client.js");
+const { wakeelFetch } = await import("../src/integrations/wakeel/wakeel-client.js");
 const { getActiveTemplate } = await import("../src/integrations/wakeel/template-api.js");
 
 describe("Template API Integration", () => {
@@ -26,17 +26,17 @@ describe("Template API Integration", () => {
       content_template: "<p>Hello</p>"
     };
 
-    executeWakeelRequest.mockResolvedValue(mockResponse);
+    wakeelFetch.mockResolvedValue(mockResponse);
 
     const result = await getActiveTemplate(aiContext, "Contract");
-    expect(executeWakeelRequest).toHaveBeenCalledWith("GET", "/api/ai/templates/active?documentType=Contract", aiContext);
+    expect(wakeelFetch).toHaveBeenCalledWith("GET", "/api/ai/templates/active?documentType=Contract", aiContext);
     expect(result).toEqual(mockResponse);
   });
 
   it("should throw error if backend returns 404", async () => {
     const err = new Error("Not Found");
     err.status = 404;
-    executeWakeelRequest.mockRejectedValue(err);
+    wakeelFetch.mockRejectedValue(err);
 
     await expect(getActiveTemplate(aiContext, "Contract")).rejects.toThrow("Active template not found for documentType: Contract");
   });
@@ -48,7 +48,7 @@ describe("Template API Integration", () => {
       name: "Default Contract"
     };
 
-    executeWakeelRequest.mockResolvedValue(invalidResponse);
+    wakeelFetch.mockResolvedValue(invalidResponse);
 
     await expect(getActiveTemplate(aiContext, "Contract")).rejects.toThrow(/Invalid template response received from backend/);
   });

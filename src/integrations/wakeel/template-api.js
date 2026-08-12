@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { executeWakeelRequest } from "./wakeel-client.js";
+import { wakeelFetch } from "./wakeel-client.js";
 
 export const TemplateResponseSchema = z.object({
   template_id: z.string(),
@@ -16,7 +16,7 @@ export const TemplateResponseSchema = z.object({
  */
 export async function getActiveTemplate(aiContext, documentType) {
   try {
-    const data = await executeWakeelRequest("GET", `/api/ai/templates/active?documentType=${encodeURIComponent(documentType)}`, aiContext);
+    const data = await wakeelFetch("GET", `/api/ai/templates/active?documentType=${encodeURIComponent(documentType)}`, aiContext);
     
     // Validate the response shape
     const parsed = TemplateResponseSchema.safeParse(data);
