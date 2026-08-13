@@ -52,7 +52,7 @@ describe("LaborLawSkill", () => {
     expect(retrieveKnowledgeSpy).toHaveBeenCalledWith({
       query: "What is the law?",
       context: {
-        sourceType: "labor-law"
+        knowledgeType: "labor-law"
       }
     });
 

@@ -5,7 +5,7 @@ export const KNOWLEDGE_VECTOR_FIELD = "embedding";
 export const KNOWLEDGE_VECTOR_DIMENSIONS = 1024;
 export const KNOWLEDGE_VECTOR_SIMILARITY = "cosine";
 export const KNOWLEDGE_VECTOR_FILTER_FIELDS = [
-  "sourceType",
+  "knowledgeType",
   "companyId",
   "documentId",
   "scope",

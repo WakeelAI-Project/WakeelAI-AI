@@ -5,19 +5,56 @@ import * as chatHistoryService from "../services/chat-history.service.js";
  * AI Chat Controller
  * Extracts validated request data and delegates to the orchestration service.
  * Does NOT contain AI business logic.
- * 
- * @param {import("express").Request} req 
- * @param {import("express").Response} res 
- * @param {import("express").NextFunction} next 
+ *
+ * API v8 canonical contract:
+ *   Body: { message, context: { userId, companyId, role, conversationId }, language?, field_values? }
+ *   M2M headers (from requireInternalAuth): X-User-Id, X-Company-Id, X-Role
+ *
+ * Security: The body.context identity is CROSS-CHECKED against the trusted M2M
+ * headers to prevent a compromised or misconfigured upstream from accidentally
+ * injecting a different identity into the payload. If the values differ, the
+ * request is rejected with 403 to avoid acting on an inconsistent identity.
+ *
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {import("express").NextFunction} next
  */
 export const postChat = async (req, res, next) => {
   try {
-    const { message, conversationId } = req.body;
-    const context = req.aiContext;
+    const { message, context, language, field_values } = req.body;
+    // req.aiContext is populated by requireInternalAuth from trusted M2M headers
+    const trustedHeaders = req.aiContext;
 
-    // Delegate to the clean service boundary, injecting conversationId into context
-    const fullContext = { ...context, conversationId };
-    
+    // Security: cross-check body.context identity against trusted M2M headers.
+    // The .NET gateway attaches both the JSON context and the M2M headers from the
+    // same authenticated identity. If they ever diverge, reject immediately.
+    if (
+      context.userId !== trustedHeaders.userId ||
+      context.companyId !== trustedHeaders.companyId ||
+      context.role !== trustedHeaders.role
+    ) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: "IDENTITY_CONTEXT_MISMATCH",
+          message: "The request context identity does not match the authenticated service identity.",
+        },
+      });
+    }
+
+    // Canonical context: identity from trusted headers + conversationId from body.context
+    const fullContext = {
+      userId: trustedHeaders.userId,
+      companyId: trustedHeaders.companyId,
+      role: trustedHeaders.role,
+      conversationId: context.conversationId,
+      // Forward optional fields if provided (forward-compat for when .NET proxies them)
+      ...(language !== undefined && { language }),
+      ...(field_values !== undefined && { field_values }),
+    };
+
+    const conversationId = context.conversationId;
+
     // 1. Persist the user message before orchestration
     await chatHistoryService.persistUserMessage(conversationId, fullContext, message);
 

@@ -1,8 +1,8 @@
 import { KnowledgeChunk } from "./knowledge-chunk.model.js";
 
-const buildDocumentFilter = ({ documentId, sourceType, scope, companyId, knowledgeVersion }) => ({
+const buildDocumentFilter = ({ documentId, knowledgeType, scope, companyId, knowledgeVersion }) => ({
   documentId,
-  sourceType,
+  knowledgeType,
   scope,
   companyId: companyId ?? null,
   knowledgeVersion: knowledgeVersion ?? null,
@@ -14,7 +14,7 @@ const buildDocumentFilter = ({ documentId, sourceType, scope, companyId, knowled
  *
  * @param {Object} input
  * @param {string} input.documentId
- * @param {string} input.sourceType
+ * @param {string} input.knowledgeType
  * @param {string} input.scope
  * @param {string|null} input.companyId
  * @param {string|null} [input.knowledgeVersion]
@@ -23,7 +23,7 @@ const buildDocumentFilter = ({ documentId, sourceType, scope, companyId, knowled
  */
 export const replaceKnowledgeChunks = async ({
   documentId,
-  sourceType,
+  knowledgeType,
   scope,
   companyId,
   knowledgeVersion,
@@ -31,7 +31,7 @@ export const replaceKnowledgeChunks = async ({
 }) => {
   const filter = buildDocumentFilter({
     documentId,
-    sourceType,
+    knowledgeType,
     scope,
     companyId,
     knowledgeVersion,
@@ -56,7 +56,7 @@ export const insertKnowledgeChunks = async (chunks) => (
  *
  * @param {Object} input
  * @param {string} input.documentId
- * @param {string} input.sourceType
+ * @param {string} input.knowledgeType
  * @param {string} input.scope
  * @param {string|null} [input.companyId]
  * @param {string} input.knowledgeVersion
@@ -64,14 +64,14 @@ export const insertKnowledgeChunks = async (chunks) => (
  */
 export const isKnowledgeVersionIngested = async ({
   documentId,
-  sourceType,
+  knowledgeType,
   scope,
   companyId = null,
   knowledgeVersion,
 }) => {
   const existingCount = await KnowledgeChunk.countDocuments({
     documentId,
-    sourceType,
+    knowledgeType,
     scope,
     companyId,
     knowledgeVersion,
@@ -116,7 +116,7 @@ export const searchKnowledgeChunksByVector = async ({
         _id: 0,
         documentId: 1,
         companyId: 1,
-        sourceType: 1,
+        knowledgeType: 1,
         scope: 1,
         title: 1,
         content: 1,

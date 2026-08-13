@@ -52,7 +52,7 @@ describe("CompanyPolicySkill", () => {
     expect(retrieveKnowledgeSpy).toHaveBeenCalledWith({
       query: "What is remote work policy?",
       context: {
-        sourceType: "company-policy",
+        knowledgeType: "company-policy",
         companyId: "c123" // Verifies strict tenant isolation
       }
     });

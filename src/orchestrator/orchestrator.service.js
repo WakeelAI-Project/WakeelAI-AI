@@ -22,11 +22,14 @@ const IntentSchema = z.object({
     "employee_question",
     "company_policy_question",
     "labor_law_question",
-    "leave_request",
+    "create_leave_draft",
+    "submit_leave_draft",
+    "cancel_leave_draft",
     "general_conversation"
   ]).describe("The core intent of the user's message."),
-  requiresCapabilities: z.array(z.string()).describe("List of capability names required (e.g. 'calculation', 'leave_request_tool')."),
-  requiresContext: z.array(z.enum(["employee", "company", "rag"])).describe("Data sources required to answer accurately.")
+  requiresCapabilities: z.array(z.string()).describe("List of capability names required (e.g. 'calculation', 'create_leave_draft')."),
+  requiresContext: z.array(z.enum(["employee", "company", "rag"])).describe("Data sources required to answer accurately."),
+  arguments: z.record(z.string(), z.any()).optional().describe("Structured arguments for the required capabilities if applicable (e.g. leave_type, start_date).")
 });
 
 const intentLlm = llm.withStructuredOutput(IntentSchema, {
@@ -34,14 +37,20 @@ const intentLlm = llm.withStructuredOutput(IntentSchema, {
 });
 
 const DOCUMENT_GENERATION_CAPABILITY = "document_generation";
-const LEAVE_REQUEST_CAPABILITY = "leave_request";
+const CREATE_LEAVE_CAPABILITY = "create_leave_draft";
+const SUBMIT_LEAVE_CAPABILITY = "submit_leave_draft";
+const CANCEL_LEAVE_CAPABILITY = "cancel_leave_draft";
 const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
+const LEGACY_LEAVE_REQUEST = "leave_request";
 
 const normalizeIntent = (intent) => {
   const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
-    ? intent.requiresCapabilities.map((capability) => (
-      capability === LEGACY_LEAVE_REQUEST_CAPABILITY ? LEAVE_REQUEST_CAPABILITY : capability
-    ))
+    ? intent.requiresCapabilities.map((capability) => {
+        if (capability === LEGACY_LEAVE_REQUEST_CAPABILITY || capability === LEGACY_LEAVE_REQUEST) {
+          return CREATE_LEAVE_CAPABILITY; // Default fallback for old prompts
+        }
+        return capability;
+      })
     : [];
 
   if (
@@ -52,10 +61,24 @@ const normalizeIntent = (intent) => {
   }
 
   if (
-    intent?.intent === LEAVE_REQUEST_CAPABILITY
-    && !requiresCapabilities.includes(LEAVE_REQUEST_CAPABILITY)
+    intent?.intent === CREATE_LEAVE_CAPABILITY
+    && !requiresCapabilities.includes(CREATE_LEAVE_CAPABILITY)
   ) {
-    requiresCapabilities.push(LEAVE_REQUEST_CAPABILITY);
+    requiresCapabilities.push(CREATE_LEAVE_CAPABILITY);
+  }
+
+  if (
+    intent?.intent === SUBMIT_LEAVE_CAPABILITY
+    && !requiresCapabilities.includes(SUBMIT_LEAVE_CAPABILITY)
+  ) {
+    requiresCapabilities.push(SUBMIT_LEAVE_CAPABILITY);
+  }
+
+  if (
+    intent?.intent === CANCEL_LEAVE_CAPABILITY
+    && !requiresCapabilities.includes(CANCEL_LEAVE_CAPABILITY)
+  ) {
+    requiresCapabilities.push(CANCEL_LEAVE_CAPABILITY);
   }
 
   return {
@@ -98,9 +121,11 @@ const buildDocumentGenerationResponse = (conversationId, skillResult) => {
 
 const getLeaveRequestToolResult = (capabilityResults) => {
   const result = capabilityResults.find((candidate) => (
-    candidate.capability === LEAVE_REQUEST_CAPABILITY
+    (candidate.capability === CREATE_LEAVE_CAPABILITY || 
+     candidate.capability === SUBMIT_LEAVE_CAPABILITY || 
+     candidate.capability === CANCEL_LEAVE_CAPABILITY)
     && candidate.status === "success"
-    && candidate.data?.data?.type === LEAVE_REQUEST_CAPABILITY
+    && candidate.data?.data?.type === "leave_request"
   ));
 
   return result?.data || null;

@@ -14,9 +14,13 @@ const request = (await import("supertest")).default;
 const app = (await import("../src/app.js")).default;
 
 describe("POST /api/knowledge/ingest", () => {
+  /**
+   * API v8 canonical payload uses knowledgeType (not sourceType).
+   * .NET's CompanyController sends knowledgeType: "company-policy" when ingesting handbooks.
+   */
   const validPayload = {
     companyId: "company-uuid",
-    sourceType: "labor-law",
+    knowledgeType: "labor-law",
     documentId: "document-uuid",
     title: "Egyptian Labor Law",
     content: "Document text for ingestion.",
@@ -65,7 +69,7 @@ describe("POST /api/knowledge/ingest", () => {
     expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
   });
 
-  it("accepts a valid labor-law ingestion request", async () => {
+  it("accepts a valid labor-law ingestion request with knowledgeType", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
       .set(validHeaders)
@@ -83,7 +87,7 @@ describe("POST /api/knowledge/ingest", () => {
   it("accepts a valid company-policy ingestion request", async () => {
     const payload = {
       ...validPayload,
-      sourceType: "company-policy",
+      knowledgeType: "company-policy",
       title: "Company Leave Policy",
     };
 
@@ -97,11 +101,11 @@ describe("POST /api/knowledge/ingest", () => {
     expect(mockIngestKnowledgeDocument).toHaveBeenCalledWith(payload);
   });
 
-  it("rejects an invalid sourceType", async () => {
+  it("rejects an invalid knowledgeType value", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
       .set(validHeaders)
-      .send({ ...validPayload, sourceType: "unknown" });
+      .send({ ...validPayload, knowledgeType: "unknown" });
 
     expect(response.status).toBe(400);
     expect(response.body.success).toBe(false);
@@ -109,8 +113,27 @@ describe("POST /api/knowledge/ingest", () => {
     expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
   });
 
+  it("rejects a request with the old sourceType field name", async () => {
+    const legacyPayload = {
+      companyId: "company-uuid",
+      sourceType: "labor-law",   // Old field name — must be rejected
+      documentId: "document-uuid",
+      title: "Egyptian Labor Law",
+      content: "Some content.",
+    };
+
+    const response = await request(app)
+      .post("/api/knowledge/ingest")
+      .set(validHeaders)
+      .send(legacyPayload);
+
+    // Rejected because knowledgeType is required and sourceType is an extra unknown field
+    expect(response.status).toBe(400);
+    expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
+  });
+
   it("rejects missing required fields", async () => {
-    const { documentId, ...payload } = validPayload;
+    const { documentId: _documentId, ...payload } = validPayload;
 
     const response = await request(app)
       .post("/api/knowledge/ingest")
@@ -135,4 +158,3 @@ describe("POST /api/knowledge/ingest", () => {
     expect(mockIngestKnowledgeDocument).not.toHaveBeenCalled();
   });
 });
-

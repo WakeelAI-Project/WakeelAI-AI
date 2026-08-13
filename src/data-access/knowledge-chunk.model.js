@@ -12,7 +12,7 @@ const knowledgeChunkSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    sourceType: {
+    knowledgeType: {
       type: String,
       required: true,
       enum: ["labor-law", "company-policy"],
@@ -63,7 +63,7 @@ const knowledgeChunkSchema = new mongoose.Schema(
 
 knowledgeChunkSchema.index({
   documentId: 1,
-  sourceType: 1,
+  knowledgeType: 1,
   scope: 1,
   companyId: 1,
   knowledgeVersion: 1,

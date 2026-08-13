@@ -1,9 +1,9 @@
 import { jest } from "@jest/globals";
 
-jest.unstable_mockModule("../src/config/env.js", () => ({
-  config: {
-    WAKEEL_API_BASE_URL: "https://backend.test",
-  },
+const mockWakeelFetch = jest.fn();
+
+jest.unstable_mockModule("../src/integrations/wakeel/wakeel-client.js", () => ({
+  wakeelFetch: mockWakeelFetch,
 }));
 
 const {
@@ -18,21 +18,18 @@ describe("Leave API Integration", () => {
     companyId: "company-1",
     role: "Employee",
     conversationId: "conv-1",
-    employeeJwt: "employee.jwt.token",
+    // employeeJwt is explicitly removed in API v8; wakeelFetch uses M2M headers
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it("creates a draft through POST /api/leave-requests using bearer auth and form fields", async () => {
-    const fetchFn = jest.fn().mockResolvedValue({
-      ok: true,
-      json: jest.fn().mockResolvedValue({
-        request_id: "req-1",
-        status: "Draft",
-        days_requested: 3,
-      }),
+  it("creates a draft through POST /api/ai/leave-requests using M2M JSON", async () => {
+    mockWakeelFetch.mockResolvedValueOnce({
+      request_id: "req-1",
+      status: "Draft",
+      days_requested: 3,
     });
 
     const result = await createLeaveDraft(
@@ -42,23 +39,23 @@ describe("Leave API Integration", () => {
         start_date: "2026-08-10",
         end_date: "2026-08-12",
         reason: "Family trip",
-      },
-      { fetchFn }
+        attachment_url: "https://storage.example.com/medical-report.pdf",
+      }
     );
 
-    expect(fetchFn).toHaveBeenCalledWith("https://backend.test/api/leave-requests", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer employee.jwt.token",
-      },
-      body: expect.any(FormData),
-    });
+    expect(mockWakeelFetch).toHaveBeenCalledWith(
+      "POST",
+      "/api/ai/leave-requests",
+      aiContext,
+      {
+        leave_type: "Annual",
+        start_date: "2026-08-10",
+        end_date: "2026-08-12",
+        reason: "Family trip",
+        attachment_url: "https://storage.example.com/medical-report.pdf",
+      }
+    );
 
-    const body = fetchFn.mock.calls[0][1].body;
-    expect(body.get("leave_type")).toBe("Annual");
-    expect(body.get("start_date")).toBe("2026-08-10");
-    expect(body.get("end_date")).toBe("2026-08-12");
-    expect(body.get("reason")).toBe("Family trip");
     expect(result).toEqual({
       request_id: "req-1",
       status: "Draft",
@@ -66,77 +63,63 @@ describe("Leave API Integration", () => {
     });
   });
 
-  it("fails closed when the employee JWT is unavailable", async () => {
-    const fetchFn = jest.fn();
-
+  it("validates payload and rejects invalid leave_type", async () => {
     await expect(createLeaveDraft(
-      { ...aiContext, employeeJwt: undefined },
+      aiContext,
       {
-        leave_type: "Annual",
+        leave_type: "InvalidType",
         start_date: "2026-08-10",
         end_date: "2026-08-12",
-      },
-      { fetchFn }
+      }
     )).rejects.toMatchObject({
-      code: "LEAVE_AUTH_TOKEN_UNAVAILABLE",
-      status: 501,
+      code: "LEAVE_CREATE_PAYLOAD_INVALID",
+      status: 400,
     });
 
-    expect(fetchFn).not.toHaveBeenCalled();
+    expect(mockWakeelFetch).not.toHaveBeenCalled();
   });
 
-  it("submits a draft through PATCH /api/leave-requests/{request_id}/submit", async () => {
-    const fetchFn = jest.fn().mockResolvedValue({
-      ok: true,
-      json: jest.fn().mockResolvedValue({
-        request_id: "req-1",
-        status: "Pending",
-      }),
+  it("submits a draft through PATCH /api/ai/leave-requests/:id/submit", async () => {
+    mockWakeelFetch.mockResolvedValueOnce({
+      request_id: "req-1",
+      status: "Pending",
     });
 
-    const result = await submitLeaveDraft(aiContext, "req-1", { fetchFn });
+    const result = await submitLeaveDraft(aiContext, "req-1");
 
-    expect(fetchFn).toHaveBeenCalledWith("https://backend.test/api/leave-requests/req-1/submit", {
-      method: "PATCH",
-      headers: {
-        Authorization: "Bearer employee.jwt.token",
-      },
-    });
+    expect(mockWakeelFetch).toHaveBeenCalledWith(
+      "PATCH",
+      "/api/ai/leave-requests/req-1/submit",
+      aiContext
+    );
+
     expect(result).toEqual({
       request_id: "req-1",
       status: "Pending",
     });
   });
 
-  it("cancels a draft through DELETE /api/leave-requests/{request_id}", async () => {
-    const fetchFn = jest.fn().mockResolvedValue({
-      ok: true,
-    });
+  it("cancels a draft through DELETE /api/ai/leave-requests/:id", async () => {
+    mockWakeelFetch.mockResolvedValueOnce({});
 
-    const result = await cancelLeaveDraft(aiContext, "req-1", { fetchFn });
+    const result = await cancelLeaveDraft(aiContext, "req-1");
 
-    expect(fetchFn).toHaveBeenCalledWith("https://backend.test/api/leave-requests/req-1", {
-      method: "DELETE",
-      headers: {
-        Authorization: "Bearer employee.jwt.token",
-      },
-    });
+    expect(mockWakeelFetch).toHaveBeenCalledWith(
+      "DELETE",
+      "/api/ai/leave-requests/req-1",
+      aiContext
+    );
+
     expect(result).toEqual({
       request_id: "req-1",
       status: "Cancelled",
     });
   });
 
-  it("preserves backend error code and status", async () => {
-    const fetchFn = jest.fn().mockResolvedValue({
-      ok: false,
-      status: 422,
-      text: jest.fn().mockResolvedValue(JSON.stringify({
-        error: "insufficient_leave_balance",
-        message: "Requested days exceed remaining balance",
-        status: 422,
-      })),
-    });
+  it("preserves backend errors from wakeelFetch", async () => {
+    const error = new Error("insufficient_leave_balance");
+    error.status = 422;
+    mockWakeelFetch.mockRejectedValueOnce(error);
 
     await expect(createLeaveDraft(
       aiContext,
@@ -144,12 +127,7 @@ describe("Leave API Integration", () => {
         leave_type: "Annual",
         start_date: "2026-08-10",
         end_date: "2026-08-12",
-      },
-      { fetchFn }
-    )).rejects.toMatchObject({
-      code: "insufficient_leave_balance",
-      status: 422,
-    });
+      }
+    )).rejects.toThrow("insufficient_leave_balance");
   });
 });
-

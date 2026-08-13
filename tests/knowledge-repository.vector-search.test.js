@@ -20,7 +20,7 @@ describe("searchKnowledgeChunksByVector", () => {
     const queryVector = Array.from({ length: 1024 }, () => 0.1);
     const filter = {
       $and: [
-        { sourceType: "labor-law" },
+        { knowledgeType: "labor-law" },
         { scope: "global" },
       ],
     };
@@ -50,7 +50,7 @@ describe("searchKnowledgeChunksByVector", () => {
           _id: 0,
           documentId: 1,
           companyId: 1,
-          sourceType: 1,
+          knowledgeType: 1,
           scope: 1,
           title: 1,
           content: 1,

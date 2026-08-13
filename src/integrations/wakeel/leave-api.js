@@ -1,12 +1,34 @@
 import { z } from "zod";
-import { config } from "../../config/env.js";
+import { wakeelFetch } from "./wakeel-client.js";
+
+/**
+ * Internal M2M leave API — API v8 canonical contract.
+ *
+ * All three operations use wakeelFetch, which automatically attaches:
+ *   X-Internal-API-Key, X-User-Id, X-Company-Id, X-Role
+ *
+ * These endpoints are internal AI-server endpoints, not the public employee endpoints.
+ * The employee JWT (employeeJwt) is NO LONGER required or accepted here.
+ *
+ * Endpoints per API v8:
+ *   POST   /api/ai/leave-requests            — create a leave draft
+ *   POST   /api/ai/leave-requests/:id/submit — submit draft to Pending
+ *   DELETE /api/ai/leave-requests/:id        — cancel draft
+ */
 
 const LeaveCreateRequestSchema = z.object({
   leave_type: z.enum(["Annual", "Sick", "Unpaid"]),
   start_date: z.string().trim().min(1, "start_date is required"),
   end_date: z.string().trim().min(1, "end_date is required"),
   reason: z.string().trim().max(500).optional(),
-  attachment: z.unknown().optional(),
+  /**
+   * attachment_url: Optional URL to an already-uploaded file (e.g. a medical report
+   * stored in blob storage). This replaces the old binary attachment FormData field.
+   * API v8 ambiguity: .NET does not yet forward field_values (which would carry
+   * attachment_url) to the AI service. When .NET is updated, this field will be
+   * populated from context.field_values.attachment_url.
+   */
+  attachment_url: z.string().url("attachment_url must be a valid URL").optional(),
 }).strict();
 
 const LeaveCreateResponseSchema = z.object({
@@ -30,64 +52,8 @@ const createLeaveApiError = ({ code, message, status, details }) => {
   return error;
 };
 
-const getEmployeeJwt = (aiContext) => {
-  const token = aiContext?.employeeJwt;
-
-  if (!token || typeof token !== "string" || token.trim().length === 0) {
-    throw createLeaveApiError({
-      code: "LEAVE_AUTH_TOKEN_UNAVAILABLE",
-      status: 501,
-      message: "The AI Server does not currently have the employee JWT required by the leave-request backend endpoints.",
-    });
-  }
-
-  return token.trim();
-};
-
-const appendIfPresent = (form, fieldName, value) => {
-  if (value !== undefined && value !== null && String(value).trim().length > 0) {
-    form.append(fieldName, value);
-  }
-};
-
-const buildCreateForm = (payload) => {
-  const form = new FormData();
-  form.append("leave_type", payload.leave_type);
-  form.append("start_date", payload.start_date);
-  form.append("end_date", payload.end_date);
-  appendIfPresent(form, "reason", payload.reason);
-
-  if (payload.attachment) {
-    form.append("attachment", payload.attachment);
-  }
-
-  return form;
-};
-
-const readErrorBody = async (response) => {
-  const text = await response.text().catch(() => "");
-  if (!text) return null;
-
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { message: text };
-  }
-};
-
-const parseJsonResponse = async (response, endpoint, schema) => {
-  if (!response.ok) {
-    const details = await readErrorBody(response);
-    throw createLeaveApiError({
-      code: details?.error || "LEAVE_BACKEND_ERROR",
-      status: response.status,
-      message: details?.message || `Backend error ${response.status} from ${endpoint}`,
-      details,
-    });
-  }
-
-  const data = await response.json();
-  const parsed = schema.safeParse(data);
+const parseJsonResponse = async (rawData, endpoint, schema) => {
+  const parsed = schema.safeParse(rawData);
 
   if (!parsed.success) {
     throw createLeaveApiError({
@@ -102,13 +68,11 @@ const parseJsonResponse = async (response, endpoint, schema) => {
 };
 
 /**
- * Creates a leave draft through the actual .NET leave API.
+ * Creates a leave draft through the internal AI M2M endpoint.
  *
- * The actual backend requires Authorization: Bearer <employee JWT>. The
- * current AI chat gateway does not populate this value, so this integration
- * intentionally fails closed until the real token is available in aiContext.
+ * Uses wakeelFetch (M2M headers). No employeeJwt required.
  *
- * @param {import("../../contracts/index.js").AIContext & { employeeJwt?: string }} aiContext
+ * @param {import("../../contracts/index.js").AIContext} aiContext Trusted AI context
  * @param {z.infer<typeof LeaveCreateRequestSchema>} payload
  * @param {Object} [dependencies]
  * @returns {Promise<z.infer<typeof LeaveCreateResponseSchema>>}
@@ -124,28 +88,22 @@ export async function createLeaveDraft(aiContext, payload, dependencies = {}) {
     });
   }
 
-  const {
-    fetchFn = fetch,
-    baseUrl = config.WAKEEL_API_BASE_URL,
-  } = dependencies;
+  const { fetchFn } = dependencies;
+  const endpoint = "/api/ai/leave-requests";
 
-  const employeeJwt = getEmployeeJwt(aiContext);
-  const endpoint = "/api/leave-requests";
-  const response = await fetchFn(`${baseUrl}${endpoint}`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${employeeJwt}`,
-    },
-    body: buildCreateForm(parsedPayload.data),
-  });
+  // wakeelFetch handles M2M headers (X-Internal-API-Key, X-User-Id, X-Company-Id, X-Role)
+  // and sends JSON body — no FormData, no employeeJwt
+  const data = fetchFn
+    ? await fetchFn(endpoint, parsedPayload.data)
+    : await wakeelFetch("POST", endpoint, aiContext, parsedPayload.data);
 
-  return parseJsonResponse(response, endpoint, LeaveCreateResponseSchema);
+  return parseJsonResponse(data, endpoint, LeaveCreateResponseSchema);
 }
 
 /**
- * Submits a leave draft so the backend changes it to Pending.
+ * Submits a leave draft so the backend transitions it to Pending.
  *
- * @param {import("../../contracts/index.js").AIContext & { employeeJwt?: string }} aiContext
+ * @param {import("../../contracts/index.js").AIContext} aiContext Trusted AI context
  * @param {string} requestId
  * @param {Object} [dependencies]
  * @returns {Promise<z.infer<typeof LeaveSubmitResponseSchema>>}
@@ -159,27 +117,20 @@ export async function submitLeaveDraft(aiContext, requestId, dependencies = {}) 
     });
   }
 
-  const {
-    fetchFn = fetch,
-    baseUrl = config.WAKEEL_API_BASE_URL,
-  } = dependencies;
+  const { fetchFn } = dependencies;
+  const endpoint = `/api/ai/leave-requests/${requestId}/submit`;
 
-  const employeeJwt = getEmployeeJwt(aiContext);
-  const endpoint = `/api/leave-requests/${requestId}/submit`;
-  const response = await fetchFn(`${baseUrl}${endpoint}`, {
-    method: "PATCH",
-    headers: {
-      Authorization: `Bearer ${employeeJwt}`,
-    },
-  });
+  const data = fetchFn
+    ? await fetchFn(endpoint)
+    : await wakeelFetch("PATCH", endpoint, aiContext);
 
-  return parseJsonResponse(response, endpoint, LeaveSubmitResponseSchema);
+  return parseJsonResponse(data, endpoint, LeaveSubmitResponseSchema);
 }
 
 /**
- * Cancels a leave draft through the actual backend draft-cancel endpoint.
+ * Cancels a leave draft through the internal AI M2M endpoint.
  *
- * @param {import("../../contracts/index.js").AIContext & { employeeJwt?: string }} aiContext
+ * @param {import("../../contracts/index.js").AIContext} aiContext Trusted AI context
  * @param {string} requestId
  * @param {Object} [dependencies]
  * @returns {Promise<{request_id: string, status: "Cancelled"}>}
@@ -193,28 +144,13 @@ export async function cancelLeaveDraft(aiContext, requestId, dependencies = {}) 
     });
   }
 
-  const {
-    fetchFn = fetch,
-    baseUrl = config.WAKEEL_API_BASE_URL,
-  } = dependencies;
+  const { fetchFn } = dependencies;
+  const endpoint = `/api/ai/leave-requests/${requestId}`;
 
-  const employeeJwt = getEmployeeJwt(aiContext);
-  const endpoint = `/api/leave-requests/${requestId}`;
-  const response = await fetchFn(`${baseUrl}${endpoint}`, {
-    method: "DELETE",
-    headers: {
-      Authorization: `Bearer ${employeeJwt}`,
-    },
-  });
-
-  if (!response.ok) {
-    const details = await readErrorBody(response);
-    throw createLeaveApiError({
-      code: details?.error || "LEAVE_BACKEND_ERROR",
-      status: response.status,
-      message: details?.message || `Backend error ${response.status} from ${endpoint}`,
-      details,
-    });
+  if (fetchFn) {
+    await fetchFn(endpoint);
+  } else {
+    await wakeelFetch("DELETE", endpoint, aiContext);
   }
 
   return {
@@ -222,4 +158,3 @@ export async function cancelLeaveDraft(aiContext, requestId, dependencies = {}) 
     status: "Cancelled",
   };
 }
-
