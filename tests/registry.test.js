@@ -156,7 +156,7 @@ describe("Registry & Contracts (Task 3.2.2)", () => {
       expect(results.length).toBe(1);
       expect(results[0].status).toBe("success");
       expect(results[0].data).toBe("mocked result");
-      expect(executeMock).toHaveBeenCalledWith("test", {});
+      expect(executeMock).toHaveBeenCalledWith("test", {}, {});
     });
 
     it("Unknown/unregistered capability is handled cleanly", async () => {

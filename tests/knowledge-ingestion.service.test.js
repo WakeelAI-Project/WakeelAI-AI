@@ -23,9 +23,12 @@ jest.unstable_mockModule("../src/data-access/knowledge-repository.js", () => ({
 const { ingestKnowledgeDocument } = await import("../src/rag/ingestion/knowledge-ingestion.service.js");
 
 describe("Knowledge ingestion service", () => {
+  /**
+   * API v8 uses knowledgeType (not sourceType).
+   */
   const basePayload = {
     companyId: "company-uuid",
-    sourceType: "labor-law",
+    knowledgeType: "labor-law",
     documentId: "document-uuid",
     title: "Egyptian Labor Law",
     content: [
@@ -57,7 +60,7 @@ describe("Knowledge ingestion service", () => {
     });
   });
 
-  it("stores labor-law chunks as global knowledge", async () => {
+  it("stores labor-law chunks as global scope with knowledgeType field", async () => {
     await ingestKnowledgeDocument(basePayload);
 
     const storedInput = mockReplaceKnowledgeChunks.mock.calls[0][0];
@@ -69,7 +72,7 @@ describe("Knowledge ingestion service", () => {
         expect.objectContaining({
           documentId: "document-uuid",
           companyId: null,
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           title: "Egyptian Labor Law",
           chunkIndex: 0,
@@ -82,10 +85,27 @@ describe("Knowledge ingestion service", () => {
     );
   });
 
+  it("rejects the legacy sourceType field name", async () => {
+    const legacyPayload = {
+      companyId: "company-uuid",
+      sourceType: "labor-law",    // Old field name — must be rejected by schema
+      documentId: "document-uuid",
+      title: "Egyptian Labor Law",
+      content: "Some content.",
+    };
+
+    await expect(ingestKnowledgeDocument(legacyPayload)).rejects.toMatchObject({
+      code: "VALIDATION_ERROR",
+      status: 400,
+    });
+
+    expect(mockReplaceKnowledgeChunks).not.toHaveBeenCalled();
+  });
+
   it("stores company-policy chunks scoped to companyId", async () => {
     const payload = {
       ...basePayload,
-      sourceType: "company-policy",
+      knowledgeType: "company-policy",
       title: "Company Policy",
     };
 
@@ -99,7 +119,7 @@ describe("Knowledge ingestion service", () => {
       expect.arrayContaining([
         expect.objectContaining({
           companyId: "company-uuid",
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
           scope: "company",
         }),
       ])
@@ -127,4 +147,3 @@ describe("Knowledge ingestion service", () => {
     });
   });
 });
-

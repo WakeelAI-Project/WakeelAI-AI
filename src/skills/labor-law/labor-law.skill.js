@@ -35,7 +35,7 @@ const laborLawSkill = {
       const retrievalResult = await retrieveKnowledge({
         query: message,
         context: {
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
         }
       });
 

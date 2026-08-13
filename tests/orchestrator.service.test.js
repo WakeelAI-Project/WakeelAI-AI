@@ -24,9 +24,13 @@ jest.unstable_mockModule("../src/services/document-generation.service.js", () =>
   generateDocument: mockGenerateDocument
 }));
 
-const mockHandleLeaveRequest = jest.fn();
+const mockHandleCreateLeaveDraft = jest.fn();
+const mockHandleSubmitLeaveDraft = jest.fn();
+const mockHandleCancelLeaveDraft = jest.fn();
 jest.unstable_mockModule("../src/services/leave-request.service.js", () => ({
-  handleLeaveRequest: mockHandleLeaveRequest
+  handleCreateLeaveDraft: mockHandleCreateLeaveDraft,
+  handleSubmitLeaveDraft: mockHandleSubmitLeaveDraft,
+  handleCancelLeaveDraft: mockHandleCancelLeaveDraft,
 }));
 
 const { handleChat } = await import("../src/orchestrator/orchestrator.service.js");
@@ -35,7 +39,8 @@ describe("Orchestrator Service", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockGenerateDocument.mockReset();
-    mockHandleLeaveRequest.mockReset();
+    mockHandleCreateLeaveDraft.mockReset();
+    mockHandleSubmitLeaveDraft.mockReset();
   });
 
   const baseInput = {
@@ -55,10 +60,10 @@ describe("Orchestrator Service", () => {
       requiresCapabilities: ["leave_request_tool"],
       requiresContext: ["employee"]
     });
-    mockHandleLeaveRequest.mockResolvedValueOnce({
+    mockHandleCreateLeaveDraft.mockResolvedValueOnce({
       success: true,
-      status: "info",
-      message: "Your leave balance is 10 days.",
+      status: "draft_created",
+      message: "I've created your annual leave draft.",
       sources: []
     });
 
@@ -66,12 +71,9 @@ describe("Orchestrator Service", () => {
 
     expect(result.conversationId).toBe("conv-1");
     expect(result.type).toBe("text");
-    expect(result.message).toBe("Your leave balance is 10 days.");
+    expect(result.message).toBe("I've created your annual leave draft.");
     expect(result.actions).toEqual([]);
-    expect(mockHandleLeaveRequest).toHaveBeenCalledWith({
-      message: "I need to calculate my leave balance.",
-      aiContext: baseInput.context
-    });
+    expect(mockHandleCreateLeaveDraft).toHaveBeenCalledWith(baseInput.context, {});
     expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 
@@ -183,54 +185,61 @@ describe("Orchestrator Service", () => {
     });
   });
 
-  it("should return leave_draft result card directly after leave submission", async () => {
+  it("should return leave_draft result card directly after leave draft creation", async () => {
     const resultCard = {
       type: "leave_draft",
       request_id: "req-1",
       leave_type: "Annual",
-      start_date: "2026-08-10",
-      end_date: "2026-08-12",
+      start_date: "2030-08-10",
+      end_date: "2030-08-12",
       days_requested: 3,
       attachment_uploaded: false,
       actions: []
     };
 
     mockInvoke.mockResolvedValueOnce({
-      intent: "leave_request",
-      requiresCapabilities: [],
-      requiresContext: []
+      intent: "create_leave_draft",
+      requiresCapabilities: ["create_leave_draft"],
+      requiresContext: [],
+      arguments: {
+        leave_type: "Annual",
+        start_date: "2030-08-10",
+        end_date: "2030-08-12"
+      }
     });
-    mockHandleLeaveRequest.mockResolvedValueOnce({
+    // The tool wraps service result: data.type === "leave_request", data.result_card, etc.
+    mockHandleCreateLeaveDraft.mockResolvedValueOnce({
       success: true,
-      status: "submitted",
-      message: "I've submitted your annual leave request. It is pending HR approval.",
+      status: "draft_created",
+      message: "I've created your annual leave draft.",
       sources: [],
       result_card: resultCard,
       action: {
         type: "leave_request",
         payload: {
           request_id: "req-1",
-          status: "Pending"
+          status: "Draft"
         }
-      }
+      },
+      leave_request: { request_id: "req-1", status: "Draft" }
     });
 
     const result = await handleChat({
       ...baseInput,
-      message: "Yes, create it."
+      message: "Create annual leave from 2030-08-10 to 2030-08-12."
     });
 
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       conversationId: "conv-1",
-      message: "I've submitted your annual leave request. It is pending HR approval.",
+      message: "I've created your annual leave draft.",
       type: "action",
       sources: [],
       actions: [{
         type: "leave_request",
         payload: {
           request_id: "req-1",
-          status: "Pending"
+          status: "Draft"
         }
       }],
       result_card: resultCard

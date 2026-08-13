@@ -583,18 +583,18 @@ const retrieveClauseKnowledge = async ({
   const supportBySourceType = {};
 
   try {
-    for (const sourceType of placeholder.source_types) {
+    for (const knowledgeType of placeholder.source_types) {
       const retrieval = await retrieveKnowledgeFn({
         query: buildClauseRetrievalQuery({
           placeholder,
-          sourceType,
+          sourceType: knowledgeType,
           documentType,
           values,
           companyContext,
         }),
         context: {
-          sourceType,
-          companyId: sourceType === "company-policy" ? aiContext.companyId : undefined,
+          knowledgeType,
+          companyId: knowledgeType === "company-policy" ? aiContext.companyId : undefined,
           topK: 3,
         },
       });
@@ -606,10 +606,10 @@ const retrieveClauseKnowledge = async ({
       const formattedSources = formatClauseSources({
         sources: retrievedSources,
         placeholder,
-        sourceType,
+        sourceType: knowledgeType,
       });
       sources.push(...formattedSources);
-      supportBySourceType[sourceType] = hasSufficientRetrievedSupport({
+      supportBySourceType[knowledgeType] = hasSufficientRetrievedSupport({
         chunks: retrievedChunks,
         sources: formattedSources,
       });

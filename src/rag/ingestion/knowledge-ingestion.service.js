@@ -38,15 +38,15 @@ const normalizeInput = (input) => {
   return parsed.data;
 };
 
-const getScopeForKnowledgeType = (sourceType) => (
-  sourceType === "labor-law" ? "global" : "company"
+const getScopeForKnowledgeType = (knowledgeType) => (
+  knowledgeType === "labor-law" ? "global" : "company"
 );
 
 const createKnowledgeChunkRecords = ({ input, chunks, embeddings, scope }) => (
   chunks.map((content, index) => ({
     documentId: input.documentId,
     companyId: scope === "company" ? input.companyId : null,
-    sourceType: input.sourceType,
+    knowledgeType: input.knowledgeType,
     scope,
     title: input.title,
     content,
@@ -75,7 +75,7 @@ const generateChunkEmbeddings = async (chunks) => {
  */
 export const ingestKnowledgeDocument = async (input, options = {}) => {
   const normalizedInput = normalizeInput(input);
-  const scope = getScopeForKnowledgeType(normalizedInput.sourceType);
+  const scope = getScopeForKnowledgeType(normalizedInput.knowledgeType);
   const chunkSize = getConfiguredChunkSize();
   const chunks = chunkDocumentContent(normalizedInput.content, { chunkSize });
 
@@ -88,7 +88,7 @@ export const ingestKnowledgeDocument = async (input, options = {}) => {
   }
 
   logger.info(
-    `[KnowledgeIngestion] Starting ingestion documentId=${normalizedInput.documentId} sourceType=${normalizedInput.sourceType} scope=${scope} chunks=${chunks.length}`
+    `[KnowledgeIngestion] Starting ingestion documentId=${normalizedInput.documentId} knowledgeType=${normalizedInput.knowledgeType} scope=${scope} chunks=${chunks.length}`
   );
 
   let embeddings;
@@ -96,7 +96,7 @@ export const ingestKnowledgeDocument = async (input, options = {}) => {
     embeddings = await generateChunkEmbeddings(chunks);
   } catch (error) {
     logger.error(
-      `[KnowledgeIngestion] Embedding generation failed documentId=${normalizedInput.documentId} sourceType=${normalizedInput.sourceType} chunks=${chunks.length}`
+      `[KnowledgeIngestion] Embedding generation failed documentId=${normalizedInput.documentId} knowledgeType=${normalizedInput.knowledgeType} chunks=${chunks.length}`
     );
 
     throw createServiceError({
@@ -131,7 +131,7 @@ export const ingestKnowledgeDocument = async (input, options = {}) => {
     } else {
       await replaceKnowledgeChunks({
         documentId: normalizedInput.documentId,
-        sourceType: normalizedInput.sourceType,
+        knowledgeType: normalizedInput.knowledgeType,
         scope,
         companyId: scope === "company" ? normalizedInput.companyId : null,
         knowledgeVersion: normalizedInput.knowledgeVersion ?? null,
@@ -151,7 +151,7 @@ export const ingestKnowledgeDocument = async (input, options = {}) => {
   }
 
   logger.info(
-    `[KnowledgeIngestion] Completed ingestion documentId=${normalizedInput.documentId} sourceType=${normalizedInput.sourceType} scope=${scope} chunksCreated=${records.length}`
+    `[KnowledgeIngestion] Completed ingestion documentId=${normalizedInput.documentId} knowledgeType=${normalizedInput.knowledgeType} scope=${scope} chunksCreated=${records.length}`
   );
 
   return {

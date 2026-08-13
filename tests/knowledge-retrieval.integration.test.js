@@ -50,7 +50,7 @@ const assertLaborLawChunkShape = (chunk) => {
   expect(chunk.documentId).toEqual(expect.any(String));
   expect(chunk.title).toEqual(expect.any(String));
   expect(chunk.content).toEqual(expect.any(String));
-  expect(chunk.sourceType).toBe("labor-law");
+  expect(chunk.knowledgeType).toBe("labor-law");
   expect(chunk.scope).toBe("global");
   expect(chunk.companyId).toBeNull();
   expect(chunk.chunkIndex).toEqual(expect.any(Number));
@@ -66,7 +66,7 @@ const assertSourceShape = (source) => {
   expect(source.id).toEqual(expect.any(String));
   expect(source.metadata).toEqual(expect.objectContaining({
     documentId: expect.any(String),
-    sourceType: expect.any(String),
+    knowledgeType: expect.any(String),
     scope: expect.any(String),
     chunkIndex: expect.any(Number),
     similarityScore: expect.any(Number),
@@ -122,7 +122,7 @@ if (!shouldRunIntegrationTests) {
       latestLaborLawResult = await retrieveKnowledge({
         query: annualLeaveQuery,
         context: {
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           topK: 5,
         },
       });
@@ -141,7 +141,7 @@ if (!shouldRunIntegrationTests) {
       const result = await retrieveKnowledge({
         query: annualLeaveDurationQuery,
         context: {
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           topK: 5,
         },
       });
@@ -161,7 +161,7 @@ if (!shouldRunIntegrationTests) {
       latestDocumentFilterResult = await retrieveKnowledge({
         query: documentFilteredQuery,
         context: {
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           documentId: expectedDocumentId,
           topK: 5,
         },
@@ -177,7 +177,7 @@ if (!shouldRunIntegrationTests) {
       await expect(retrieveKnowledge({
         query: "company vacation policy",
         context: {
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
         },
       })).rejects.toMatchObject({
         code: "TENANT_CONTEXT_REQUIRED",
@@ -197,7 +197,7 @@ if (!shouldRunIntegrationTests) {
       latestCompanyPolicyResult = await retrieveKnowledge({
         query: "company vacation policy",
         context: {
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
           companyId: "company-A",
           topK: 5,
         },
@@ -210,7 +210,7 @@ if (!shouldRunIntegrationTests) {
       }
 
       latestCompanyPolicyResult.chunks.forEach((chunk) => {
-        expect(chunk.sourceType).toBe("company-policy");
+        expect(chunk.knowledgeType).toBe("company-policy");
         expect(chunk.scope).toBe("company");
         expect(chunk.companyId).toBe("company-A");
         expect(chunk.companyId).not.toBe("company-B");

@@ -39,7 +39,7 @@ const companyPolicySkill = {
       const retrievalResult = await retrieveKnowledge({
         query: message,
         context: {
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
           companyId: context.companyId
         }
       });

@@ -48,7 +48,9 @@ import calculationSkill from "../skills/calculation/calculation.skill.js";
 import documentGenerationSkill from "../skills/document-generation/document-generation.skill.js";
 import laborLawSkill from "../skills/labor-law/labor-law.skill.js";
 import companyPolicySkill from "../skills/company-policy/company-policy.skill.js";
-import leaveRequestTool from "../tools/leave-request.tool.js";
+import createLeaveDraftTool from "../tools/create-leave-draft.tool.js";
+import submitLeaveDraftTool from "../tools/submit-leave-draft.tool.js";
+import cancelLeaveDraftTool from "../tools/cancel-leave-draft.tool.js";
 
 // Register known skills/tools
 const registerKnownSkill = (skill) => {
@@ -67,7 +69,9 @@ registerKnownSkill(calculationSkill);
 registerKnownSkill(documentGenerationSkill);
 registerKnownSkill(laborLawSkill);
 registerKnownSkill(companyPolicySkill);
-registerKnownTool(leaveRequestTool);
+registerKnownTool(createLeaveDraftTool);
+registerKnownTool(submitLeaveDraftTool);
+registerKnownTool(cancelLeaveDraftTool);
 
 /**
  * Boundary for the Skill/Tool registry.
@@ -104,7 +108,8 @@ export const executeCapabilitiesBoundary = async (capabilities, orchestratorCont
     try {
       logger.info(`[Orchestrator] Executing capability: ${capabilityName}`);
       // Capabilities contain their own execute function per the contract
-      const result = await capability.execute(orchestratorContext.message, orchestratorContext.userContext);
+      const args = orchestratorContext.intent?.arguments || {};
+      const result = await capability.execute(orchestratorContext.message, orchestratorContext.userContext, args);
       
       results.push({
         capability: capabilityName,

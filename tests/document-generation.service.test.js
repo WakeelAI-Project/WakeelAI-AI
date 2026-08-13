@@ -363,7 +363,7 @@ describe("DocumentGenerationService", () => {
           documentId: "law-1",
           title: "Labor Law",
           content: "Grounded legal clause from retrieved labor law.",
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           chunkIndex: 0,
           similarityScore: 0.91,
@@ -373,7 +373,7 @@ describe("DocumentGenerationService", () => {
           title: "Labor Law",
           type: "labor-law",
           content: "Grounded legal clause from retrieved labor law.",
-          metadata: { sourceType: "labor-law", scope: "global" },
+          metadata: { knowledgeType: "labor-law", scope: "global" },
         }],
       });
 
@@ -386,7 +386,7 @@ describe("DocumentGenerationService", () => {
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith({
         query: "Egyptian labor law Contract termination Backend Developer 9 to 5 HR Tech",
         context: {
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           companyId: undefined,
           topK: 3,
         },
@@ -430,7 +430,7 @@ describe("DocumentGenerationService", () => {
           documentId: "law-1",
           title: "Labor Law",
           content: "Grounded legal clause support.",
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           chunkIndex: 0,
           similarityScore: 0.91,
@@ -440,7 +440,7 @@ describe("DocumentGenerationService", () => {
           title: "Labor Law",
           type: "labor-law",
           content: "Grounded legal clause support.",
-          metadata: { sourceType: "labor-law", scope: "global" },
+          metadata: { knowledgeType: "labor-law", scope: "global" },
         }],
       });
       generateLegalClauseFn.mockResolvedValue({
@@ -480,7 +480,7 @@ describe("DocumentGenerationService", () => {
           documentId: "policy-1",
           title: "Company Policy",
           content: "Grounded company policy clause.",
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
           scope: "company",
           companyId: "company-1",
           chunkIndex: 0,
@@ -491,7 +491,7 @@ describe("DocumentGenerationService", () => {
           title: "Company Policy",
           type: "company-policy",
           content: "Grounded company policy clause.",
-          metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
+          metadata: { knowledgeType: "company-policy", scope: "company", companyId: "company-1" },
         }],
       });
       generateLegalClauseFn.mockResolvedValue({
@@ -509,7 +509,7 @@ describe("DocumentGenerationService", () => {
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith({
         query: "company policy Contract working hours Backend Developer 9 to 5 HR Tech",
         context: {
-          sourceType: "company-policy",
+          knowledgeType: "company-policy",
           companyId: "company-1",
           topK: 3,
         },
@@ -536,13 +536,13 @@ describe("DocumentGenerationService", () => {
       });
 
       retrieveKnowledgeFn.mockImplementation(async ({ context }) => {
-        if (context.sourceType === "company-policy") {
+        if (context.knowledgeType === "company-policy") {
           return {
             chunks: [{
               documentId: "policy-1",
               title: "Working Hours Policy",
               content: "Company policy support for working hours.",
-              sourceType: "company-policy",
+              knowledgeType: "company-policy",
               scope: "company",
               companyId: "company-1",
               chunkIndex: 0,
@@ -553,7 +553,7 @@ describe("DocumentGenerationService", () => {
               title: "Working Hours Policy",
               type: "company-policy",
               content: "Company policy support for working hours.",
-              metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
+              metadata: { knowledgeType: "company-policy", scope: "company", companyId: "company-1" },
             }],
           };
         }
@@ -564,7 +564,7 @@ describe("DocumentGenerationService", () => {
             documentId: "law-1",
             title: "Labor Law",
             content: `Labor-law support ${callIndex}.`,
-            sourceType: "labor-law",
+            knowledgeType: "labor-law",
             scope: "global",
             chunkIndex: callIndex,
             similarityScore: 0.91,
@@ -574,7 +574,7 @@ describe("DocumentGenerationService", () => {
             title: "Labor Law",
             type: "labor-law",
             content: `Labor-law support ${callIndex}.`,
-            metadata: { sourceType: "labor-law", scope: "global" },
+            metadata: { knowledgeType: "labor-law", scope: "global" },
           }],
         };
       });
@@ -608,13 +608,13 @@ describe("DocumentGenerationService", () => {
       });
 
       retrieveKnowledgeFn.mockImplementation(async ({ context }) => {
-        if (context.sourceType === "labor-law") {
+        if (context.knowledgeType === "labor-law") {
           return {
             chunks: [{
               documentId: "law-annual",
               title: "Labor Law Annual Leave",
               content: "Labor law support for annual leave.",
-              sourceType: "labor-law",
+              knowledgeType: "labor-law",
               scope: "global",
               chunkIndex: 0,
               similarityScore: 0.91,
@@ -624,7 +624,7 @@ describe("DocumentGenerationService", () => {
               title: "Labor Law Annual Leave",
               type: "labor-law",
               content: "Labor law support for annual leave.",
-              metadata: { sourceType: "labor-law", scope: "global" },
+              metadata: { knowledgeType: "labor-law", scope: "global" },
             }],
           };
         }
@@ -634,7 +634,7 @@ describe("DocumentGenerationService", () => {
             documentId: "policy-annual",
             title: "Company Annual Leave Policy",
             content: "Company policy support for annual leave.",
-            sourceType: "company-policy",
+            knowledgeType: "company-policy",
             scope: "company",
             companyId: "company-1",
             chunkIndex: 0,
@@ -645,7 +645,7 @@ describe("DocumentGenerationService", () => {
             title: "Company Annual Leave Policy",
             type: "company-policy",
             content: "Company policy support for annual leave.",
-            metadata: { sourceType: "company-policy", scope: "company", companyId: "company-1" },
+            metadata: { knowledgeType: "company-policy", scope: "company", companyId: "company-1" },
           }],
         };
       });
@@ -662,10 +662,10 @@ describe("DocumentGenerationService", () => {
 
       expect(result.success).toBe(true);
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith(expect.objectContaining({
-        context: expect.objectContaining({ sourceType: "labor-law", companyId: undefined }),
+        context: expect.objectContaining({ knowledgeType: "labor-law", companyId: undefined }),
       }));
       expect(retrieveKnowledgeFn).toHaveBeenCalledWith(expect.objectContaining({
-        context: expect.objectContaining({ sourceType: "company-policy", companyId: "company-1" }),
+        context: expect.objectContaining({ knowledgeType: "company-policy", companyId: "company-1" }),
       }));
       expect(generateLegalClauseFn).toHaveBeenCalledWith(expect.objectContaining({
         clause: expect.objectContaining({
@@ -707,7 +707,7 @@ describe("DocumentGenerationService", () => {
           documentId: "law-1",
           title: "Labor Law",
           content: "General employment source without enough annual leave detail.",
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           chunkIndex: 0,
           similarityScore: 0.8,
@@ -717,7 +717,7 @@ describe("DocumentGenerationService", () => {
           title: "Labor Law",
           type: "labor-law",
           content: "General employment source without enough annual leave detail.",
-          metadata: { sourceType: "labor-law", scope: "global" },
+          metadata: { knowledgeType: "labor-law", scope: "global" },
         }],
       });
       generateLegalClauseFn.mockResolvedValue({
@@ -746,7 +746,7 @@ describe("DocumentGenerationService", () => {
           documentId: "law-1",
           title: "Labor Law",
           content: "Grounded probation support.",
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           chunkIndex: 0,
           similarityScore: 0.91,
@@ -756,7 +756,7 @@ describe("DocumentGenerationService", () => {
           title: "Labor Law",
           type: "labor-law",
           content: "Grounded probation support.",
-          metadata: { sourceType: "labor-law", scope: "global" },
+          metadata: { knowledgeType: "labor-law", scope: "global" },
         }],
       });
       generateLegalClauseFn.mockResolvedValue({
@@ -785,7 +785,7 @@ describe("DocumentGenerationService", () => {
           documentId: "law-1",
           title: "Labor Law",
           content: "The source discusses annual leave but does not establish a 21 day entitlement.",
-          sourceType: "labor-law",
+          knowledgeType: "labor-law",
           scope: "global",
           chunkIndex: 0,
           similarityScore: 0.91,
@@ -795,7 +795,7 @@ describe("DocumentGenerationService", () => {
           title: "Labor Law",
           type: "labor-law",
           content: "The source discusses annual leave but does not establish a day entitlement.",
-          metadata: { sourceType: "labor-law", scope: "global" },
+          metadata: { knowledgeType: "labor-law", scope: "global" },
         }],
       });
       generateLegalClauseFn.mockResolvedValue({
