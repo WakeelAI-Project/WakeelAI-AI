@@ -120,3 +120,40 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
     }
   };
 }
+
+/**
+ * Retrieves paginated conversations for a user, enforcing tenant/user isolation.
+ *
+ * @param {import("../contracts/index.js").AIContext} context
+ * @param {number} page
+ * @param {number} limit
+ * @returns {Promise<Object>}
+ */
+export async function getUserConversations(context, page = 1, limit = 20) {
+  const { userId, companyId } = context;
+
+  // 1. Enforce limits
+  const safeLimit = Math.min(Math.max(1, limit), 100);
+  const safePage = Math.max(1, page);
+
+  // 2. Retrieve conversations strictly isolated to userId and companyId
+  const { conversations, total } = await repository.getConversations(userId, companyId, safePage, safeLimit);
+
+  // 3. Format response
+  const formattedConversations = conversations.map(conv => ({
+    conversationId: conv.conversationId,
+    role: conv.role,
+    createdAt: conv.createdAt,
+    updatedAt: conv.updatedAt,
+  }));
+
+  return {
+    conversations: formattedConversations,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      hasNextPage: safePage * safeLimit < total,
+    }
+  };
+}

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { validateRequest } from "../middleware/validate-request.js";
 import { requireInternalAuth } from "../middleware/internal-auth.middleware.js";
 import { postChat } from "../controllers/ai-chat.controller.js";
-import { getHistory } from "../controllers/ai-history.controller.js";
+import { getHistory, getConversations } from "../controllers/ai-history.controller.js";
 
 const router = Router();
 
@@ -56,6 +56,18 @@ router.get(
   "/chat/history",
   validateRequest({ query: historyQuerySchema }),
   getHistory
+);
+
+const conversationsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  limit: z.coerce.number().int().min(1).max(100).optional().default(20),
+});
+
+// Register the GET /chat/conversations route
+router.get(
+  "/chat/conversations",
+  validateRequest({ query: conversationsQuerySchema }),
+  getConversations
 );
 
 export default router;

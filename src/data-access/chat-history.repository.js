@@ -65,3 +65,27 @@ export async function getMessages(conversationId, page, limit) {
 
   return { messages, total };
 }
+
+/**
+ * Retrieves paginated conversations for a user within a company, ordered chronologically (newest first).
+ *
+ * @param {string} userId
+ * @param {string} companyId
+ * @param {number} page
+ * @param {number} limit
+ * @returns {Promise<{ conversations: Array, total: number }>}
+ */
+export async function getConversations(userId, companyId, page, limit) {
+  const skip = (page - 1) * limit;
+
+  const [conversations, total] = await Promise.all([
+    Conversation.find({ userId, companyId })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean(),
+    Conversation.countDocuments({ userId, companyId }),
+  ]);
+
+  return { conversations, total };
+}

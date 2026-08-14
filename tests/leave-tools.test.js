@@ -105,7 +105,7 @@ describe("Leave Request Tools Integration", () => {
       );
     });
 
-    it("prevents sick leave due to missing attachment capability", async () => {
+    it("requests attachment_url missing field for sick leave if not provided", async () => {
       const args = {
         leave_type: "Sick",
         start_date: "2030-08-10",
@@ -113,9 +113,46 @@ describe("Leave Request Tools Integration", () => {
       };
 
       const result = await createLeaveDraftTool.execute("Create sick leave", aiContext, args);
-      expect(result.success).toBe(false);
-      expect(result.data.status).toBe("error");
-      expect(result.data.error.code).toBe("LEAVE_ATTACHMENT_UNSUPPORTED");
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("missing_fields");
+      expect(result.data.missing_fields.map(f => f.field_name)).toContain("attachment_url");
+    });
+
+    it("creates a sick leave draft successfully when attachment_url is provided in field_values", async () => {
+      mockWakeelFetch.mockResolvedValueOnce({
+        request_id: "req-create-sick",
+        status: "Draft",
+        days_requested: 3,
+      });
+
+      const args = {
+        leave_type: "Sick",
+        start_date: "2030-08-10",
+        end_date: "2030-08-12",
+      };
+
+      const contextWithFieldValues = {
+        ...aiContext,
+        field_values: { attachment_url: "https://storage.example.com/medical_report.pdf" }
+      };
+
+      const result = await createLeaveDraftTool.execute("Create sick leave", contextWithFieldValues, args);
+
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("draft_created");
+      expect(result.data.leave_request.request_id).toBe("req-create-sick");
+
+      expect(mockWakeelFetch).toHaveBeenCalledWith(
+        "POST",
+        "/api/ai/leave-requests",
+        contextWithFieldValues,
+        expect.objectContaining({
+          leave_type: "Sick",
+          start_date: "2030-08-10",
+          end_date: "2030-08-12",
+          attachment_url: "https://storage.example.com/medical_report.pdf",
+        })
+      );
     });
   });
 

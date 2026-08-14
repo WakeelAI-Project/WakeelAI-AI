@@ -7,6 +7,7 @@ export const createLeaveDraftInputSchema = z.object({
   start_date: z.string().optional().describe("The start date of the leave in YYYY-MM-DD format."),
   end_date: z.string().optional().describe("The end date of the leave in YYYY-MM-DD format."),
   reason: z.string().optional().describe("The reason for the leave."),
+  attachment_url: z.string().optional().describe("The URL of the uploaded medical report, passed from field_values.attachment_url"),
 });
 
 const createLeaveDraftTool = {
@@ -24,6 +25,10 @@ const createLeaveDraftTool = {
    */
   async execute(message, context, args = {}) {
     logger.info("[CreateLeaveDraftTool] Executing create leave draft capability");
+
+    if (context.field_values && context.field_values.attachment_url) {
+      args.attachment_url = context.field_values.attachment_url;
+    }
 
     const result = await handleCreateLeaveDraft(context, args);
 

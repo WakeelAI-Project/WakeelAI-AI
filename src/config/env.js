@@ -9,6 +9,7 @@ const envSchema = z.object({
   MONGODB_DB_NAME: z.string().min(1, "MONGODB_DB_NAME is required"),
   LLM_API_KEY: z.string().min(1, "LLM_API_KEY is required"),
   LLM_MODEL: z.string().min(1, "LLM_MODEL is required"),
+  LLM_BASE_URL: z.string().url("LLM_BASE_URL must be a valid URL").optional(),
   HUGGINGFACE_API_KEY: z.string().min(1, "HUGGINGFACE_API_KEY is required"),
   EMBEDDING_PROVIDER: z.string().default("huggingface"),
   EMBEDDING_MODEL: z.string().min(1, "EMBEDDING_MODEL is required"),
@@ -38,3 +39,13 @@ if (!parsedEnv.success && process.env.NODE_ENV !== "test") {
 }
 
 export const config = parsedEnv.success ? parsedEnv.data : process.env;
+
+export const llmConfig = {
+  apiKey: config.LLM_API_KEY,
+  modelName: config.LLM_MODEL,
+  ...(config.LLM_BASE_URL && {
+    configuration: {
+      baseURL: config.LLM_BASE_URL,
+    },
+  }),
+};
