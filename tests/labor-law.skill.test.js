@@ -1,8 +1,8 @@
 import { jest } from "@jest/globals";
 const mockInvoke = jest.fn();
-jest.unstable_mockModule("@langchain/openai", () => {
+jest.unstable_mockModule("../src/llm/iti-adapter.js", () => {
   return {
-    ChatOpenAI: jest.fn().mockImplementation(() => {
+    ITILanguageModel: jest.fn().mockImplementation(() => {
       return {
         invoke: mockInvoke
       };

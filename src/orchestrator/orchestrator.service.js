@@ -1,6 +1,6 @@
 import { logger } from "../shared/logger.js";
-import { config } from "../config/env.js";
-import { ChatOpenAI } from "@langchain/openai";
+import { config, llmConfig } from "../config/env.js";
+import { ITILanguageModel } from "../llm/iti-adapter.js";
 import { z } from "zod";
 import { ChatResponseSchema } from "../contracts/index.js";
 import { createOrchestratorContext } from "./orchestrator-context.js";
@@ -8,9 +8,8 @@ import { gatherContextBoundary, executeCapabilitiesBoundary } from "./dependency
 
 // Initialize LLM for intent and final response
 // Note: We use the API keys loaded from the environment/config
-const llm = new ChatOpenAI({
-  apiKey: config.LLM_API_KEY,
-  modelName: config.LLM_MODEL,
+const llm = new ITILanguageModel({
+  ...llmConfig,
   temperature: 0,
 });
 

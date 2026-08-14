@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ChatOpenAI } from "@langchain/openai";
-import { config } from "../config/env.js";
+import { ITILanguageModel } from "./iti-adapter.js";
+import { config, llmConfig } from "../config/env.js";
 
 export const LegalClauseGenerationOutputSchema = z.object({
   support: z.enum(["supported", "insufficient_source_support"]),
@@ -12,9 +12,8 @@ let legalClauseLlm;
 
 const getLegalClauseLlm = () => {
   if (!legalClauseLlm) {
-    const llm = new ChatOpenAI({
-      apiKey: config.LLM_API_KEY,
-      modelName: config.LLM_MODEL,
+    const llm = new ITILanguageModel({
+      ...llmConfig,
       temperature: 0,
     });
 

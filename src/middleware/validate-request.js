@@ -13,13 +13,16 @@ export const validateRequest = (schemas) => {
   return (req, res, next) => {
     try {
       if (schemas.body) {
-        req.body = schemas.body.parse(req.body);
+        const parsedBody = schemas.body.parse(req.body);
+        Object.defineProperty(req, 'body', { value: parsedBody, writable: true, enumerable: true, configurable: true });
       }
       if (schemas.query) {
-        req.query = schemas.query.parse(req.query);
+        const parsedQuery = schemas.query.parse(req.query);
+        Object.defineProperty(req, 'query', { value: parsedQuery, writable: true, enumerable: true, configurable: true });
       }
       if (schemas.params) {
-        req.params = schemas.params.parse(req.params);
+        const parsedParams = schemas.params.parse(req.params);
+        Object.defineProperty(req, 'params', { value: parsedParams, writable: true, enumerable: true, configurable: true });
       }
       next();
     } catch (error) {

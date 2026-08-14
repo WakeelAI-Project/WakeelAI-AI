@@ -15,7 +15,8 @@ jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
 jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
   persistUserMessage: jest.fn().mockResolvedValue(),
   persistAssistantMessage: jest.fn().mockResolvedValue(),
-  getHistory: jest.fn().mockResolvedValue({})
+  getHistory: jest.fn().mockResolvedValue({}),
+  getUserConversations: jest.fn().mockResolvedValue({})
 }));
 
 const request = (await import("supertest")).default;
@@ -146,5 +147,52 @@ describe("POST /api/ai/chat", () => {
     const response = await request(app).post("/api/ai/chat").set(validHeaders).send(payloadWithFieldValues);
 
     expect(response.status).toBe(200);
+  });
+});
+
+describe("GET /api/ai/chat/conversations", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const validHeaders = {
+    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-User-Id": "user-456",
+    "X-Company-Id": "company-789",
+    "X-Role": "employee",
+  };
+
+  it("returns 200 and the list of conversations", async () => {
+    const expectedResponse = {
+      conversations: [{ conversationId: "conv-1", role: "employee" }],
+      pagination: { total: 1 }
+    };
+    const chatHistoryService = await import("../src/services/chat-history.service.js");
+    chatHistoryService.getUserConversations.mockResolvedValue(expectedResponse);
+
+    const response = await request(app).get("/api/ai/chat/conversations").set(validHeaders);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expectedResponse);
+    expect(chatHistoryService.getUserConversations).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: "user-456",
+        companyId: "company-789"
+      }),
+      1,
+      20
+    );
+  });
+
+  it("returns 401 if internal API key is missing", async () => {
+    const response = await request(app).get("/api/ai/chat/conversations");
+    expect(response.status).toBe(401);
+  });
+
+  it("returns 400 if M2M identity headers are missing", async () => {
+    const response = await request(app)
+      .get("/api/ai/chat/conversations")
+      .set({ "X-Internal-API-Key": "your_internal_api_key_here" });
+    expect(response.status).toBe(400);
   });
 });

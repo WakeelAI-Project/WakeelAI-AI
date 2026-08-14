@@ -4,7 +4,8 @@ jest.unstable_mockModule("../src/data-access/chat-history.repository.js", () => 
   upsertConversation: jest.fn(),
   saveMessage: jest.fn(),
   findConversation: jest.fn(),
-  getMessages: jest.fn()
+  getMessages: jest.fn(),
+  getConversations: jest.fn()
 }));
 
 const chatHistoryService = await import("../src/services/chat-history.service.js");
@@ -114,6 +115,28 @@ describe("ChatHistoryService", () => {
         expect(err.status).toBe(404);
         expect(err.code).toBe("CONVERSATION_NOT_FOUND");
       }
+    });
+  });
+
+  describe("getUserConversations", () => {
+    it("should return formatted conversations and pagination", async () => {
+      repository.getConversations.mockResolvedValue({
+        conversations: [{
+          conversationId: "conv-1",
+          role: "employee",
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        }],
+        total: 1
+      });
+
+      const result = await chatHistoryService.getUserConversations(context, 1, 20);
+
+      expect(repository.getConversations).toHaveBeenCalledWith(context.userId, context.companyId, 1, 20);
+      expect(result.conversations).toHaveLength(1);
+      expect(result.conversations[0].conversationId).toBe("conv-1");
+      expect(result.pagination.total).toBe(1);
+      expect(result.pagination.hasNextPage).toBe(false);
     });
   });
 });

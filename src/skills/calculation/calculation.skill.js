@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { ChatOpenAI } from "@langchain/openai";
-import { config } from "../../config/env.js";
+import { ITILanguageModel } from "../../llm/iti-adapter.js";
+import { config, llmConfig } from "../../config/env.js";
 import { logger } from "../../shared/logger.js";
 import { performCalculation, CalculationInputSchema } from "../../services/calculation.service.js";
 
@@ -9,9 +9,8 @@ export const calculationInputSchema = z.object({
   message: z.string().describe("The user's calculation request")
 });
 
-const llm = new ChatOpenAI({
-  apiKey: config.LLM_API_KEY,
-  modelName: config.LLM_MODEL,
+const llm = new ITILanguageModel({
+  ...llmConfig,
   temperature: 0,
 });
 

@@ -4,14 +4,19 @@ import { jest } from "@jest/globals";
 jest.unstable_mockModule("../src/config/env.js", () => ({
   config: {
     LLM_API_KEY: "test-key",
-    LLM_MODEL: "test-model"
+    LLM_MODEL: "test-model",
+    LLM_BASE_URL: "http://localhost",
+  },
+  llmConfig: {
+    modelName: "test-model",
+    apiKey: "test-key",
   }
 }));
 
-// Mock @langchain/openai
+// Mock iti-adapter so tests don't make real HTTP calls
 const mockInvoke = jest.fn();
-jest.unstable_mockModule("@langchain/openai", () => ({
-  ChatOpenAI: jest.fn().mockImplementation(() => ({
+jest.unstable_mockModule("../src/llm/iti-adapter.js", () => ({
+  ITILanguageModel: jest.fn().mockImplementation(() => ({
     withStructuredOutput: jest.fn().mockReturnValue({
       invoke: mockInvoke
     }),

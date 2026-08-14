@@ -185,11 +185,15 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
     }
 
     if (args.leave_type === "Sick") {
-      return createErrorResult(createDomainError(
-        "LEAVE_ATTACHMENT_UNSUPPORTED",
-        "Sick leave requires a medical report attachment. The current chat flow cannot upload that attachment, so I cannot create the request yet.",
-        422
-      ));
+      if (!hasValue(args.attachment_url)) {
+        const missingAttachmentField = MissingFieldSchema.parse({
+          field_name: "attachment_url",
+          input_type: "file",
+          label: "Medical Report",
+          options: []
+        });
+        return createMissingFieldsResult([...missingFields, missingAttachmentField]);
+      }
     }
 
     let createResponse;
@@ -199,6 +203,7 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
         start_date: args.start_date,
         end_date: args.end_date,
         reason: hasValue(args.reason) ? args.reason : undefined,
+        attachment_url: hasValue(args.attachment_url) ? args.attachment_url : undefined,
       });
     } catch (error) {
       return createErrorResult(mapBackendError(error));

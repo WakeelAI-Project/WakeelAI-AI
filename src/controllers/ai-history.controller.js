@@ -26,3 +26,28 @@ export const getHistory = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * AI Conversations Controller
+ * Retrieves paginated conversations list for a given user.
+ *
+ * @param {import("express").Request} req 
+ * @param {import("express").Response} res 
+ * @param {import("express").NextFunction} next 
+ */
+export const getConversations = async (req, res, next) => {
+  try {
+    const { page, limit } = req.query;
+    const context = req.aiContext;
+
+    const conversations = await chatHistoryService.getUserConversations(
+      context,
+      page,
+      limit
+    );
+
+    return res.status(200).json(conversations);
+  } catch (error) {
+    next(error);
+  }
+};
