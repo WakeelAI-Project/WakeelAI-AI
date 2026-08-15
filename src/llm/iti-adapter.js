@@ -76,7 +76,7 @@ export class ITILanguageModel {
       system_prompt: effectiveSystemPrompt,
     };
 
-    const url = `${this.baseURL}`;
+    const url = `${this.baseURL}/student/chat`;
     
     let response;
     const startTime = Date.now();
