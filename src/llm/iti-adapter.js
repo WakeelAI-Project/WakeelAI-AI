@@ -77,19 +77,41 @@ export class ITILanguageModel {
     };
 
     const url = `${this.baseURL}/student/chat`;
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
+    
+    let response;
+    const startTime = Date.now();
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      logger.error("[ITILanguageModel] Network request failed", {
+        provider: "ITI Gateway",
+        url: url,
+        model: this.modelName,
+        errorName: e.name,
+        errorMessage: e.message,
+        errorCode: e.code || e.cause?.code,
+        errorCause: e.cause?.message,
+        stack: e.stack,
+        durationMs: Date.now() - startTime
+      });
+      throw e;
+    }
 
     if (!response.ok) {
       const errText = await response.text().catch(() => "");
-      logger.error(`[ITILanguageModel] Gateway error ${response.status}`, { status: response.status });
+      logger.error(`[ITILanguageModel] Gateway HTTP error ${response.status}`, { 
+        status: response.status,
+        url: url,
+        model: this.modelName,
+        durationMs: Date.now() - startTime
+      });
       throw new Error(`ITI Gateway Error: ${response.status} - ${errText}`);
     }
 
