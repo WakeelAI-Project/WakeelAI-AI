@@ -55,14 +55,27 @@ export const postChat = async (req, res, next) => {
 
     const conversationId = context.conversationId;
 
-    // 1. Persist the user message before orchestration
+    // 1. Ensure the conversation is new or belongs to the trusted user/company scope.
+    await chatHistoryService.ensureConversation(conversationId, fullContext);
+
+    // 2. Load previous scoped turns before orchestration so follow-ups like
+    // "summarize it" can refer to the assistant's prior answer.
+    const conversationMessages = await chatHistoryService.getRecentHistoryForContext(
+      conversationId,
+      fullContext
+    );
+
+    // 3. Execute orchestration with previous turns + current message.
+    const result = await handleChat({
+      message,
+      conversationId,
+      context: fullContext,
+      conversationMessages,
+    });
+
+    // 4. Persist the current user message and assistant response.
     await chatHistoryService.persistUserMessage(conversationId, fullContext, message);
-
-    // 2. Execute orchestration
-    const result = await handleChat({ message, conversationId, context: fullContext });
-
-    // 3. Persist the assistant message
-    await chatHistoryService.persistAssistantMessage(conversationId, result);
+    await chatHistoryService.persistAssistantMessage(conversationId, fullContext, result);
 
     return res.status(200).json(result);
   } catch (error) {

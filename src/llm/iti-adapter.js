@@ -63,7 +63,7 @@ export class ITILanguageModel {
    * @returns {Promise<AIMessage|Object>}
    */
   async invoke(prompt) {
-    const { userContent, systemPrompt } = this._extractMessages(prompt);
+    const { messages, systemPrompt } = this._extractMessages(prompt);
 
     // In structured mode, inject a JSON schema instruction into the system prompt
     const effectiveSystemPrompt = this._schema
@@ -72,7 +72,7 @@ export class ITILanguageModel {
 
     const payload = {
       model_id: this.modelName,
-      messages: [{ role: "user", content: userContent }],
+      messages,
       system_prompt: effectiveSystemPrompt,
     };
 
@@ -106,16 +106,16 @@ export class ITILanguageModel {
   // ── Private helpers ──────────────────────────────────────────────────────
 
   /**
-   * Normalises the prompt into { userContent, systemPrompt }.
+   * Normalises the prompt into { messages, systemPrompt }.
    * Handles strings, LangChain message arrays, and PromptValue objects.
    */
   _extractMessages(prompt) {
-    let userContent = "";
+    let messages = [];
     let systemPrompt = "You are a helpful assistant.";
 
     if (typeof prompt === "string") {
-      userContent = prompt;
-      return { userContent, systemPrompt };
+      messages = [{ role: "user", content: prompt }];
+      return { messages, systemPrompt };
     }
 
     // PromptValue from ChatPromptTemplate
@@ -127,19 +127,30 @@ export class ITILanguageModel {
       for (const msg of prompt) {
         const type = msg._getType ? msg._getType() : (msg.role || msg.type || "");
         const text = msg.content ?? msg.text ?? "";
+        const content = typeof text === "string" ? text : String(text ?? "");
 
-        if (type === "system" || type === "system") {
-          systemPrompt = text;
+        if (!content.trim()) {
+          continue;
+        }
+
+        if (type === "system") {
+          systemPrompt = content;
         } else if (type === "human" || type === "user") {
-          userContent = text;
+          messages.push({ role: "user", content });
+        } else if (type === "ai" || type === "assistant") {
+          messages.push({ role: "assistant", content });
         }
       }
-      return { userContent, systemPrompt };
+
+      return {
+        messages: messages.length ? messages : [{ role: "user", content: "" }],
+        systemPrompt,
+      };
     }
 
     // Fallback
-    userContent = String(prompt);
-    return { userContent, systemPrompt };
+    messages = [{ role: "user", content: String(prompt) }];
+    return { messages, systemPrompt };
   }
 
   /**

@@ -12,6 +12,7 @@ jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
 
 const request = (await import("supertest")).default;
 const app = (await import("../src/app.js")).default;
+const { config } = await import("../src/config/env.js");
 
 describe("POST /api/knowledge/ingest", () => {
   /**
@@ -27,15 +28,11 @@ describe("POST /api/knowledge/ingest", () => {
   };
 
   const validHeaders = {
-    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
     "X-User-Id": "user-456",
     "X-Company-Id": "company-789",
     "X-Role": "Company_Owner",
   };
-
-  beforeAll(() => {
-    process.env.WAKEEL_INTERNAL_API_KEY = "your_internal_api_key_here";
-  });
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -60,7 +57,7 @@ describe("POST /api/knowledge/ingest", () => {
   it("rejects a request missing identity headers", async () => {
     const response = await request(app)
       .post("/api/knowledge/ingest")
-      .set("X-Internal-API-Key", "your_internal_api_key_here")
+      .set("X-Internal-API-Key", config.WAKEEL_INTERNAL_API_KEY)
       .send(validPayload);
 
     expect(response.status).toBe(400);
