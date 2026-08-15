@@ -82,7 +82,7 @@ export const messageRequestsCompanyContext = (message = "") => {
     return false;
   }
 
-  if (/\b(company\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
+  if (/\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
     return true;
   }
 
@@ -303,6 +303,104 @@ export const reinforceIntentWithDeterministicContext = (message, intent) => {
   };
 };
 
+const getRequestedCompanyFields = (message = "") => {
+  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  const fields = [];
+
+  if (/\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
+    fields.push("companyName");
+  }
+
+  if (/\b(industry|sector|operate|business)\b/.test(normalized)) {
+    fields.push("industry");
+  }
+
+  if (/\b(working hour|work hour|office hour|hours)\b/.test(normalized)) {
+    fields.push("workingHours");
+  }
+
+  if (/\b(address|location)\b/.test(normalized)) {
+    fields.push("address");
+  }
+
+  if (/\b(phone|contact number)\b/.test(normalized)) {
+    fields.push("phoneNumber");
+  }
+
+  if (/\b(email)\b/.test(normalized)) {
+    fields.push("email");
+  }
+
+  if (/\b(all|available)\s+company\s+(information|info|details)\b/.test(normalized)) {
+    return ["companyName", "industry", "workingHours", "address", "phoneNumber", "email", "registeredAt"];
+  }
+
+  return [...new Set(fields)];
+};
+
+const COMPANY_FIELD_LABELS = {
+  companyName: "company name",
+  industry: "industry",
+  workingHours: "working hours",
+  address: "address",
+  phoneNumber: "phone number",
+  email: "email",
+  registeredAt: "registration date",
+};
+
+const buildTrustedCompanyAnswer = (message, company) => {
+  if (!company || company.error) {
+    return null;
+  }
+
+  const requestedFields = getRequestedCompanyFields(message)
+    .filter((field) => company[field] !== null && company[field] !== undefined && company[field] !== "");
+
+  if (!requestedFields.length) {
+    return null;
+  }
+
+  if (requestedFields.length === 1 && requestedFields[0] === "companyName") {
+    return `Your company name is ${company.companyName}.`;
+  }
+
+  if (requestedFields.length === 1 && requestedFields[0] === "industry") {
+    return `Your company operates in the ${company.industry} industry.`;
+  }
+
+  if (requestedFields.length === 1 && requestedFields[0] === "workingHours") {
+    return `Your company's working hours are ${company.workingHours}.`;
+  }
+
+  const details = requestedFields
+    .map((field) => `${COMPANY_FIELD_LABELS[field]}: ${company[field]}`)
+    .join("\n");
+
+  return `Here is the company information available to me:\n${details}`;
+};
+
+const responseContradictsTrustedCompanyContext = (responseContent = "", company) => {
+  const normalized = responseContent.toLowerCase();
+
+  if (!company?.companyName) {
+    return false;
+  }
+
+  if (normalized.includes(company.companyName.toLowerCase())) {
+    return false;
+  }
+
+  return (
+    normalized.includes("don't know") ||
+    normalized.includes("do not know") ||
+    normalized.includes("not seeing") ||
+    normalized.includes("not available") ||
+    normalized.includes("unavailable") ||
+    normalized.includes("could you let me know") ||
+    normalized.includes("provide your company")
+  );
+};
+
 const getDocumentGenerationSkillResult = (capabilityResults) => {
   const result = capabilityResults.find((candidate) => (
     candidate.capability === DOCUMENT_GENERATION_CAPABILITY
@@ -460,6 +558,22 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     }
 
     const finalResponse = await llm.invoke(finalMessages);
+    const finalResponseContent = String(finalResponse.content ?? "");
+    const trustedCompanyAnswer = buildTrustedCompanyAnswer(
+      orchContext.message,
+      orchContext.gatheredData?.company
+    );
+    const shouldUseTrustedCompanyAnswer = (
+      trustedCompanyAnswer
+      && (
+        responseContradictsTrustedCompanyContext(finalResponseContent, orchContext.gatheredData.company)
+        || (
+          getRequestedCompanyFields(orchContext.message).includes("companyName")
+          && orchContext.gatheredData.company?.companyName
+          && !finalResponseContent.toLowerCase().includes(orchContext.gatheredData.company.companyName.toLowerCase())
+        )
+      )
+    );
 
     logger.info(`[Orchestrator] Finished orchestration for conversation: ${conversationId}`);
 
@@ -475,7 +589,7 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     // Return using the shared ChatResponse shape
     return {
       conversationId: orchContext.conversationId,
-      message: finalResponse.content,
+      message: shouldUseTrustedCompanyAnswer ? trustedCompanyAnswer : finalResponseContent,
       type: "text",
       sources: allSources,
       actions: []  // Will be populated in Task 3.9
