@@ -115,6 +115,27 @@ describe("Issue 1 - Company Context: Orchestrator routes company questions corre
     expect(result.message).toContain("Wakeel Technologies");
   });
 
+  it("uses trusted company context when the final LLM incorrectly says it does not know", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "company_question",
+      requiresCapabilities: [],
+      requiresContext: ["company"],
+    });
+    mockInvoke.mockResolvedValueOnce({
+      content: "I'm not seeing any information about your company in our current context.",
+    });
+    mockGetCompanyContext.mockResolvedValueOnce(COMPANY_CONTEXT_FIXTURE);
+
+    const result = await handleChat({
+      message: "what is my company's name?",
+      conversationId: "conv-llm-ignored-context",
+      context: baseContext,
+    });
+
+    expect(mockGetCompanyContext).toHaveBeenCalledTimes(1);
+    expect(result.message).toBe("Your company name is Wakeel Technologies.");
+  });
+
   it("should pass company name to the final LLM system prompt context", async () => {
     mockInvoke.mockResolvedValueOnce({
       intent: "company_question",
