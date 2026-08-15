@@ -25,6 +25,20 @@ export const postChat = async (req, res, next) => {
     // req.aiContext is populated by requireInternalAuth from trusted M2M headers
     const trustedHeaders = req.aiContext;
 
+    console.log(`[AIChatController] Chat request received. message="${message}"`);
+    console.log(
+      "[AIChatController] Authenticated context received. " +
+      `userId present=${Boolean(trustedHeaders?.userId)} ` +
+      `companyId present=${Boolean(trustedHeaders?.companyId)} ` +
+      `role present=${Boolean(trustedHeaders?.role)}`
+    );
+    console.log(
+      "[AIChatController] Body context received. " +
+      `userId present=${Boolean(context?.userId)} ` +
+      `companyId present=${Boolean(context?.companyId)} ` +
+      `conversationId present=${Boolean(context?.conversationId)}`
+    );
+
     // Security: cross-check body.context identity against trusted M2M headers.
     // The .NET gateway attaches both the JSON context and the M2M headers from the
     // same authenticated identity. If they ever diverge, reject immediately.
@@ -52,6 +66,12 @@ export const postChat = async (req, res, next) => {
       ...(language !== undefined && { language }),
       ...(field_values !== undefined && { field_values }),
     };
+
+    console.log(
+      "[AIChatController] Forwarding trusted context to orchestrator. " +
+      `companyId present=${Boolean(fullContext.companyId)} ` +
+      `conversationId present=${Boolean(fullContext.conversationId)}`
+    );
 
     const conversationId = context.conversationId;
 
