@@ -45,6 +45,61 @@ const LEGACY_LEAVE_REQUEST = "leave_request";
 const MAX_HISTORY_CONTEXT_CHARS = 18000;
 const MAX_INTENT_HISTORY_CHARS = 4000;
 
+const COMPANY_CONTEXT_TERMS = [
+  "name",
+  "called",
+  "industry",
+  "sector",
+  "operate",
+  "business",
+  "address",
+  "location",
+  "phone",
+  "email",
+  "contact",
+  "working hour",
+  "work hour",
+  "office hour",
+  "hours",
+  "registration",
+  "registered",
+  "tax",
+  "logo",
+  "information",
+  "info",
+  "details",
+];
+
+export const messageRequestsCompanyContext = (message = "") => {
+  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  const mentionsCompany = /\b(company|employer|organization|organisation)\b/.test(normalized);
+  if (!mentionsCompany) {
+    return false;
+  }
+
+  if (/\b(company\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
+    return true;
+  }
+
+  if (/\b(all|available)\s+company\s+(information|info|details)\b/.test(normalized)) {
+    return true;
+  }
+
+  if (
+    /\b(company\s+policy|leave\s+policy|hr\s+policy)\b/.test(normalized)
+    && !/\b(available|exists|handbook)\b/.test(normalized)
+  ) {
+    return false;
+  }
+
+  return COMPANY_CONTEXT_TERMS.some((term) => normalized.includes(term));
+};
+
 const normalizeConversationMessages = (messages = [], maxChars = MAX_HISTORY_CONTEXT_CHARS) => {
   const normalizedMessages = messages
     .filter((message) => (
@@ -147,6 +202,15 @@ If the current user asks to summarize, translate, shorten, explain, or continue 
 Do not claim there is no text to summarize when the prior messages contain relevant assistant content.
 If capabilities return specific data, use it when it is relevant, but do not let an irrelevant capability result override a clear request about the previous assistant answer.
 
+Company context rules:
+- Gathered Data Context is trusted runtime data from the authenticated company context service.
+- If gatheredData.company.companyName exists and the user asks for the company name, answer with that exact value.
+- If gatheredData.company.industry exists and the user asks for the industry, answer with that exact value.
+- If gatheredData.company.workingHours exists and the user asks for working hours, answer with that exact value.
+- Do not ask the user to provide company details that already exist in gatheredData.company.
+- Do not invent a company name or substitute company-policy/RAG content for company context.
+- If gatheredData.company.error exists, say the company context could not be retrieved right now and do not fabricate the value.
+
 Detected Intent: ${intent?.intent || "unknown"}
 
 Gathered Data Context:
@@ -200,10 +264,42 @@ const normalizeIntent = (intent) => {
     requiresCapabilities.push(CANCEL_LEAVE_CAPABILITY);
   }
 
+  const requiresContext = Array.isArray(intent?.requiresContext) ? intent.requiresContext : [];
+
+  if (intent?.intent === "company_question" && !requiresContext.includes("company")) {
+    requiresContext.push("company");
+  }
+
   return {
     ...intent,
     requiresCapabilities: [...new Set(requiresCapabilities)],
-    requiresContext: Array.isArray(intent?.requiresContext) ? intent.requiresContext : [],
+    requiresContext: [...new Set(requiresContext)],
+  };
+};
+
+export const reinforceIntentWithDeterministicContext = (message, intent) => {
+  const normalizedIntent = normalizeIntent(intent);
+
+  if (!messageRequestsCompanyContext(message)) {
+    return normalizedIntent;
+  }
+
+  if (
+    normalizedIntent.intent === "company_question"
+    && normalizedIntent.requiresContext.includes("company")
+  ) {
+    return normalizedIntent;
+  }
+
+  logger.warn(
+    `[Orchestrator] Reinforcing company_question intent for explicit company-context request. ` +
+    `Original intent=${normalizedIntent.intent || "unknown"}`
+  );
+
+  return {
+    ...normalizedIntent,
+    intent: "company_question",
+    requiresContext: [...new Set([...(normalizedIntent.requiresContext || []), "company"])],
   };
 };
 
@@ -310,8 +406,15 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     const orchContext = createOrchestratorContext(message, conversationId, context, conversationMessages);
 
     // 2. Determine Intent & Required Capabilities
-    orchContext.intent = await determineIntent(message, orchContext.conversationMessages);
+    orchContext.intent = reinforceIntentWithDeterministicContext(
+      message,
+      await determineIntent(message, orchContext.conversationMessages)
+    );
     logger.info(`[Orchestrator] Intent determined: ${orchContext.intent.intent}`);
+    logger.info(
+      `[Orchestrator] Required context: [` +
+      `${(orchContext.intent.requiresContext || []).join(", ")}]`
+    );
 
     // 3. Gather Required Context (Knowledge, Employee, Company)
     orchContext.gatheredData = await gatherContextBoundary(orchContext.intent.requiresContext, orchContext.userContext);
@@ -349,6 +452,10 @@ export const handleChat = async ({ message, conversationId, context, conversatio
         historyPreview: formatConversationHistoryForDebug(
           normalizeConversationMessages(orchContext.conversationMessages, 2000)
         ),
+        gatheredDataKeys: Object.keys(orchContext.gatheredData || {}),
+        hasCompanyContext: Boolean(orchContext.gatheredData?.company && !orchContext.gatheredData.company.error),
+        hasCompanyName: Boolean(orchContext.gatheredData?.company?.companyName),
+        companyContextError: orchContext.gatheredData?.company?.error?.code || null,
       });
     }
 
