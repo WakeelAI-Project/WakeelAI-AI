@@ -41,6 +41,98 @@ const SUBMIT_LEAVE_CAPABILITY = "submit_leave_draft";
 const CANCEL_LEAVE_CAPABILITY = "cancel_leave_draft";
 const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
 const LEGACY_LEAVE_REQUEST = "leave_request";
+const MAX_HISTORY_CONTEXT_CHARS = 18000;
+const MAX_INTENT_HISTORY_CHARS = 4000;
+
+const normalizeConversationMessages = (messages = [], maxChars = MAX_HISTORY_CONTEXT_CHARS) => {
+  const normalizedMessages = messages
+    .filter((message) => (
+      (message?.role === "user" || message?.role === "assistant") &&
+      typeof message?.content === "string" &&
+      message.content.trim()
+    ))
+    .map((message) => ({
+      role: message.role === "assistant" ? "Assistant" : "User",
+      content: message.content.trim(),
+    }));
+
+  if (!normalizedMessages.length) {
+    return [];
+  }
+
+  const entries = [];
+  let remainingChars = maxChars;
+
+  for (let index = normalizedMessages.length - 1; index >= 0; index -= 1) {
+    const message = normalizedMessages[index];
+    const entry = message.content;
+    const separatorLength = entries.length ? 2 : 0;
+
+    if (entry.length + separatorLength <= remainingChars) {
+      entries.unshift({
+        role: message.role === "Assistant" ? "assistant" : "user",
+        content: message.content,
+      });
+      remainingChars -= entry.length + separatorLength;
+      continue;
+    }
+
+    if (remainingChars > 120) {
+      entries.unshift({
+        role: message.role === "Assistant" ? "assistant" : "user",
+        content: `${entry.slice(0, remainingChars - 34)}\n[Message truncated for context]`,
+      });
+    }
+
+    break;
+  }
+
+  return entries;
+};
+
+const formatConversationHistoryForDebug = (messages = []) => (
+  messages.length
+    ? messages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n\n")
+    : "No previous conversation messages."
+);
+
+const buildIntentMessages = (message, conversationMessages = []) => [
+  {
+    role: "system",
+    content: `Analyze the current user message and determine their intent, required capabilities, and required context data sources.
+Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, and follow-up questions.
+Return only the structured JSON required by the schema.`,
+  },
+  ...normalizeConversationMessages(conversationMessages, MAX_INTENT_HISTORY_CHARS),
+  {
+    role: "user",
+    content: message,
+  },
+];
+
+const buildFinalMessages = ({ message, conversationMessages = [], intent, gatheredData, capabilityResults }) => [
+  {
+    role: "system",
+    content: `You are Wakeel AI, a helpful AI assistant.
+Answer the current user message using the prior conversation messages plus the gathered data and capability results below.
+If the current user asks to summarize, translate, shorten, explain, or continue prior content, apply the request to the relevant previous assistant response.
+Do not claim there is no text to summarize when the prior messages contain relevant assistant content.
+If capabilities return specific data, use it when it is relevant, but do not let an irrelevant capability result override a clear request about the previous assistant answer.
+
+Detected Intent: ${intent?.intent || "unknown"}
+
+Gathered Data Context:
+${JSON.stringify(gatheredData || {}, null, 2)}
+
+Capability Execution Results:
+${JSON.stringify(capabilityResults || [], null, 2)}`,
+  },
+  ...normalizeConversationMessages(conversationMessages, MAX_HISTORY_CONTEXT_CHARS),
+  {
+    role: "user",
+    content: message,
+  },
+];
 
 const normalizeIntent = (intent) => {
   const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
@@ -157,11 +249,9 @@ const buildLeaveRequestResponse = (conversationId, toolResult) => {
  * @param {string} message 
  * @returns {Promise<Object>}
  */
-async function determineIntent(message) {
+async function determineIntent(message, conversationMessages = []) {
   try {
-    const analysis = await intentLlm.invoke(`Analyze the following user message and determine their intent, required capabilities, and required context data sources.
-    
-User Message: "${message}"`);
+    const analysis = await intentLlm.invoke(buildIntentMessages(message, conversationMessages));
     return normalizeIntent(analysis);
   } catch (error) {
     logger.error(`[Orchestrator] Failed to determine intent: ${error.message}`);
@@ -181,17 +271,18 @@ User Message: "${message}"`);
  * @param {string} input.message
  * @param {string} input.conversationId
  * @param {import("../contracts/index.js").AIContext} input.context
+ * @param {Array<{role: string, content: string}>} [input.conversationMessages]
  * @returns {Promise<import("../contracts/index.js").ChatResponse>}
  */
-export const handleChat = async ({ message, conversationId, context }) => {
+export const handleChat = async ({ message, conversationId, context, conversationMessages = [] }) => {
   logger.info(`[Orchestrator] Starting orchestration for conversation: ${conversationId}`);
 
   try {
     // 1. Initialize Orchestration Context
-    const orchContext = createOrchestratorContext(message, conversationId, context);
+    const orchContext = createOrchestratorContext(message, conversationId, context, conversationMessages);
 
     // 2. Determine Intent & Required Capabilities
-    orchContext.intent = await determineIntent(message);
+    orchContext.intent = await determineIntent(message, orchContext.conversationMessages);
     logger.info(`[Orchestrator] Intent determined: ${orchContext.intent.intent}`);
 
     // 3. Gather Required Context (Knowledge, Employee, Company)
@@ -213,24 +304,27 @@ export const handleChat = async ({ message, conversationId, context }) => {
     }
 
     // 5. Generate Final Response
-    const finalPrompt = `
-You are Wakeel AI, a helpful AI assistant. 
-Answer the user's message based on their intent, gathered data context, and executed capabilities.
-If capabilities return specific data (like a calculation result or policy), use that to answer the user.
+    const finalMessages = buildFinalMessages({
+      message: orchContext.message,
+      conversationMessages: orchContext.conversationMessages,
+      intent: orchContext.intent,
+      gatheredData: orchContext.gatheredData,
+      capabilityResults: orchContext.capabilityResults,
+    });
 
-User Message: "${orchContext.message}"
-Detected Intent: ${orchContext.intent.intent}
+    if (process.env.NODE_ENV === "test" || process.env.WAKEEL_DEBUG_LLM_CONTEXT === "true") {
+      logger.debug("[Orchestrator] Final LLM context summary", {
+        conversationId,
+        historyLength: orchContext.conversationMessages.length,
+        historyRoles: orchContext.conversationMessages.map((item) => item.role),
+        currentUserMessage: orchContext.message,
+        historyPreview: formatConversationHistoryForDebug(
+          normalizeConversationMessages(orchContext.conversationMessages, 2000)
+        ),
+      });
+    }
 
-Gathered Data Context:
-${JSON.stringify(orchContext.gatheredData, null, 2)}
-
-Capability Execution Results:
-${JSON.stringify(orchContext.capabilityResults, null, 2)}
-
-Respond with a clear and concise final answer.
-`;
-
-    const finalResponse = await llm.invoke(finalPrompt);
+    const finalResponse = await llm.invoke(finalMessages);
 
     logger.info(`[Orchestrator] Finished orchestration for conversation: ${conversationId}`);
 

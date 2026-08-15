@@ -5,6 +5,7 @@ jest.unstable_mockModule("../src/data-access/chat-history.repository.js", () => 
   saveMessage: jest.fn(),
   findConversation: jest.fn(),
   getMessages: jest.fn(),
+  getRecentMessages: jest.fn(),
   getConversations: jest.fn()
 }));
 
@@ -25,7 +26,12 @@ describe("ChatHistoryService", () => {
 
   describe("persistUserMessage", () => {
     it("should upsert conversation and save user message", async () => {
-      repository.upsertConversation.mockResolvedValue({});
+      repository.upsertConversation.mockResolvedValue({
+        conversationId,
+        userId: context.userId,
+        companyId: context.companyId,
+        role: context.role,
+      });
       repository.saveMessage.mockResolvedValue({});
 
       await chatHistoryService.persistUserMessage(conversationId, context, "Hello AI");
@@ -39,9 +45,29 @@ describe("ChatHistoryService", () => {
 
       expect(repository.saveMessage).toHaveBeenCalledWith(expect.objectContaining({
         conversationId,
+        userId: context.userId,
+        companyId: context.companyId,
         role: "user",
         content: "Hello AI",
       }));
+    });
+  });
+
+  describe("ensureConversation", () => {
+    it("throws 404 when the conversation belongs to a different user or company", async () => {
+      repository.upsertConversation.mockResolvedValue({
+        conversationId,
+        userId: "other-user",
+        companyId: context.companyId,
+        role: context.role,
+      });
+
+      await expect(
+        chatHistoryService.ensureConversation(conversationId, context)
+      ).rejects.toMatchObject({
+        status: 404,
+        code: "CONVERSATION_NOT_FOUND",
+      });
     });
   });
 
@@ -60,7 +86,7 @@ describe("ChatHistoryService", () => {
         options: [],
       }];
 
-      await chatHistoryService.persistAssistantMessage(conversationId, {
+      await chatHistoryService.persistAssistantMessage(conversationId, context, {
         message: "Hello Human",
         type: "text",
         sources: [],
@@ -71,6 +97,8 @@ describe("ChatHistoryService", () => {
 
       expect(repository.saveMessage).toHaveBeenCalledWith(expect.objectContaining({
         conversationId,
+        userId: context.userId,
+        companyId: context.companyId,
         role: "assistant",
         content: "Hello Human",
         missing_fields: missingFields,
@@ -94,6 +122,13 @@ describe("ChatHistoryService", () => {
 
       const result = await chatHistoryService.getHistory(conversationId, context, 1, 20);
 
+      expect(repository.getMessages).toHaveBeenCalledWith(
+        conversationId,
+        context.userId,
+        context.companyId,
+        1,
+        20
+      );
       expect(result.conversationId).toBe(conversationId);
       expect(result.messages).toHaveLength(1);
       expect(result.messages[0].missing_fields).toEqual([]);
@@ -115,6 +150,54 @@ describe("ChatHistoryService", () => {
         expect(err.status).toBe(404);
         expect(err.code).toBe("CONVERSATION_NOT_FOUND");
       }
+    });
+  });
+
+  describe("getRecentHistoryForContext", () => {
+    it("returns recent scoped messages for LLM context", async () => {
+      repository.findConversation.mockResolvedValue({ conversationId });
+      repository.getRecentMessages.mockResolvedValue([
+        {
+          role: "user",
+          content: "Question",
+          createdAt: new Date("2030-01-01T00:00:00Z"),
+        },
+        {
+          role: "assistant",
+          content: "Answer",
+          createdAt: new Date("2030-01-01T00:00:01Z"),
+        },
+      ]);
+
+      const result = await chatHistoryService.getRecentHistoryForContext(conversationId, context, 12);
+
+      expect(repository.getRecentMessages).toHaveBeenCalledWith(
+        conversationId,
+        context.userId,
+        context.companyId,
+        12
+      );
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: "Question",
+          createdAt: new Date("2030-01-01T00:00:00Z"),
+        },
+        {
+          role: "assistant",
+          content: "Answer",
+          createdAt: new Date("2030-01-01T00:00:01Z"),
+        },
+      ]);
+    });
+
+    it("returns an empty context when a new conversation has no persisted messages yet", async () => {
+      repository.findConversation.mockResolvedValue(null);
+
+      const result = await chatHistoryService.getRecentHistoryForContext(conversationId, context);
+
+      expect(result).toEqual([]);
+      expect(repository.getRecentMessages).not.toHaveBeenCalled();
     });
   });
 

@@ -13,6 +13,16 @@ const messageSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    userId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+    companyId: {
+      type: String,
+      required: true,
+      index: true,
+    },
     role: {
       type: String,
       required: true,
@@ -49,8 +59,8 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
-// Compound index for efficient history retrieval and pagination
-messageSchema.index({ conversationId: 1, createdAt: 1 });
+// Compound index for efficient, tenant-scoped history retrieval and pagination
+messageSchema.index({ conversationId: 1, userId: 1, companyId: 1, createdAt: 1 });
 
 export const Message =
   mongoose.models.Message || mongoose.model("Message", messageSchema);

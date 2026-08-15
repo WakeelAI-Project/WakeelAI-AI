@@ -88,6 +88,25 @@ describe("ITILanguageModel", () => {
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.messages).toEqual([{ role: "user", content: "What is the notice period?" }]);
     });
+
+    it("preserves user and assistant chat history when prompt is a message array", async () => {
+      mockFetch.mockReturnValue(makeGoodResponse("ok"));
+
+      await llm.invoke([
+        { role: "system", content: "You are Wakeel AI." },
+        { role: "user", content: "What are the annual leave rules under Egyptian Labor Law?" },
+        { role: "assistant", content: "Annual leave under Egyptian Labor Law includes paid leave rules." },
+        { role: "user", content: "summarize it and write the response in arabic" },
+      ]);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.system_prompt).toBe("You are Wakeel AI.");
+      expect(body.messages).toEqual([
+        { role: "user", content: "What are the annual leave rules under Egyptian Labor Law?" },
+        { role: "assistant", content: "Annual leave under Egyptian Labor Law includes paid leave rules." },
+        { role: "user", content: "summarize it and write the response in arabic" },
+      ]);
+    });
   });
 
   describe("5 – system_prompt mapping", () => {
@@ -165,6 +184,29 @@ describe("ITILanguageModel", () => {
       await structured.invoke("classify this");
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.system_prompt).toContain("JSON Schema");
+    });
+
+    it("preserves chat history messages in structured mode", async () => {
+      mockFetch.mockReturnValue(
+        makeGoodResponse(JSON.stringify({ intent: "general_conversation", confidence: 1 }))
+      );
+      const structured = llm.withStructuredOutput(TestSchema);
+
+      await structured.invoke([
+        { role: "system", content: "Classify the current message." },
+        { role: "user", content: "What are the annual leave rules under Egyptian Labor Law?" },
+        { role: "assistant", content: "Annual leave answer to summarize." },
+        { role: "user", content: "translate that to Arabic" },
+      ]);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.system_prompt).toContain("Classify the current message.");
+      expect(body.system_prompt).toContain("JSON Schema");
+      expect(body.messages).toEqual([
+        { role: "user", content: "What are the annual leave rules under Egyptian Labor Law?" },
+        { role: "assistant", content: "Annual leave answer to summarize." },
+        { role: "user", content: "translate that to Arabic" },
+      ]);
     });
 
     it("strips markdown fences before parsing JSON", async () => {

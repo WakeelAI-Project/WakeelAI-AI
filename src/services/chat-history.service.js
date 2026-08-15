@@ -2,6 +2,47 @@ import crypto from "crypto";
 import { logger } from "../shared/logger.js";
 import * as repository from "../data-access/chat-history.repository.js";
 
+const DEFAULT_CONTEXT_HISTORY_LIMIT = 20;
+
+function createConversationNotFoundError() {
+  const error = new Error("Conversation not found");
+  error.status = 404;
+  error.code = "CONVERSATION_NOT_FOUND";
+  return error;
+}
+
+function isConversationInContext(conversation, context) {
+  return (
+    conversation?.userId === context.userId &&
+    conversation?.companyId === context.companyId
+  );
+}
+
+/**
+ * Ensures a conversation exists and belongs to the trusted user/company scope.
+ * Creates the conversation for a new .NET-minted conversationId.
+ *
+ * @param {string} conversationId
+ * @param {import("../contracts/index.js").AIContext} context
+ * @returns {Promise<Object>}
+ */
+export async function ensureConversation(conversationId, context) {
+  const { userId, companyId, role } = context;
+
+  const conversation = await repository.upsertConversation({
+    conversationId,
+    userId,
+    companyId,
+    role,
+  });
+
+  if (!isConversationInContext(conversation, context)) {
+    throw createConversationNotFoundError();
+  }
+
+  return conversation;
+}
+
 /**
  * Persists a user message, creating or reusing a conversation.
  *
@@ -11,25 +52,26 @@ import * as repository from "../data-access/chat-history.repository.js";
  */
 export async function persistUserMessage(conversationId, context, messageContent) {
   try {
-    const { userId, companyId, role } = context;
+    const { userId, companyId } = context;
 
     // 1. Ensure conversation exists and ownership is recorded
-    await repository.upsertConversation({
-      conversationId,
-      userId,
-      companyId,
-      role,
-    });
+    await ensureConversation(conversationId, context);
 
     // 2. Persist user message
     const messageId = crypto.randomUUID();
     await repository.saveMessage({
       messageId,
       conversationId,
+      userId,
+      companyId,
       role: "user",
       content: messageContent,
     });
   } catch (error) {
+    if (error.code === "CONVERSATION_NOT_FOUND") {
+      throw error;
+    }
+
     logger.error(`[ChatHistoryService] Failed to persist user message: ${error.message}`);
     // Non-blocking: We log and swallow the error so AI orchestration can still proceed
     // if persistence fails, or we could throw. Based on standard practices, history 
@@ -43,14 +85,18 @@ export async function persistUserMessage(conversationId, context, messageContent
  * Persists an assistant message to an existing conversation.
  *
  * @param {string} conversationId
+ * @param {import("../contracts/index.js").AIContext} context
  * @param {import("../contracts/index.js").ChatResponse} responseData
  */
-export async function persistAssistantMessage(conversationId, responseData) {
+export async function persistAssistantMessage(conversationId, context, responseData) {
   try {
+    const { userId, companyId } = context;
     const messageId = crypto.randomUUID();
     await repository.saveMessage({
       messageId,
       conversationId,
+      userId,
+      companyId,
       role: "assistant",
       content: responseData.message,
       type: responseData.type,
@@ -60,6 +106,10 @@ export async function persistAssistantMessage(conversationId, responseData) {
       result_card: responseData.result_card || null,
     });
   } catch (error) {
+    if (error.code === "CONVERSATION_NOT_FOUND") {
+      throw error;
+    }
+
     logger.error(`[ChatHistoryService] Failed to persist assistant message: ${error.message}`);
     throw new Error("Failed to persist assistant message.");
   }
@@ -81,12 +131,7 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
   const conversation = await repository.findConversation(conversationId, userId, companyId);
   
   if (!conversation) {
-    // Return a 404-like error structure recognized by the error handler,
-    // or just a custom error that maps to 404.
-    const error = new Error("Conversation not found");
-    error.status = 404;
-    error.code = "CONVERSATION_NOT_FOUND";
-    throw error;
+    throw createConversationNotFoundError();
   }
 
   // 2. Enforce limits
@@ -94,7 +139,7 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
   const safePage = Math.max(1, page);
 
   // 3. Retrieve messages
-  const { messages, total } = await repository.getMessages(conversationId, safePage, safeLimit);
+  const { messages, total } = await repository.getMessages(conversationId, userId, companyId, safePage, safeLimit);
 
   // 4. Format response
   const formattedMessages = messages.map(msg => ({
@@ -119,6 +164,36 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
       hasNextPage: safePage * safeLimit < total,
     }
   };
+}
+
+/**
+ * Retrieves recent tenant-scoped history for LLM context.
+ *
+ * @param {string} conversationId
+ * @param {import("../contracts/index.js").AIContext} context
+ * @param {number} limit
+ * @returns {Promise<Array<{role: string, content: string, createdAt: Date}>>}
+ */
+export async function getRecentHistoryForContext(
+  conversationId,
+  context,
+  limit = DEFAULT_CONTEXT_HISTORY_LIMIT
+) {
+  const { userId, companyId } = context;
+
+  const conversation = await repository.findConversation(conversationId, userId, companyId);
+
+  if (!conversation) {
+    return [];
+  }
+
+  const messages = await repository.getRecentMessages(conversationId, userId, companyId, limit);
+
+  return messages.map((msg) => ({
+    role: msg.role,
+    content: msg.content,
+    createdAt: msg.createdAt,
+  }));
 }
 
 /**

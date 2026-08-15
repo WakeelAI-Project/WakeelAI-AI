@@ -250,4 +250,52 @@ describe("Orchestrator Service", () => {
       result_card: resultCard
     });
   });
+
+  it("should include previous conversation turns when answering a follow-up", async () => {
+    const previousAssistantAnswer = "**Annual Leave under the Egyptian Labor Law**\n\n| Item | Rule |\n| --- | --- |\n| Minimum entitlement | 21 days |";
+
+    mockInvoke.mockResolvedValueOnce({
+      intent: "general_conversation",
+      requiresCapabilities: [],
+      requiresContext: []
+    });
+    mockInvoke.mockResolvedValueOnce({
+      content: "ملخص قواعد الإجازة السنوية: يستحق العامل إجازة سنوية مدفوعة بحسب مدة خدمته."
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "summarize it and write the response in arabic",
+      conversationMessages: [
+        {
+          role: "user",
+          content: "What are the annual leave rules under Egyptian Labor Law?"
+        },
+        {
+          role: "assistant",
+          content: previousAssistantAnswer
+        }
+      ]
+    });
+
+    expect(result.message).toContain("ملخص");
+    expect(mockInvoke).toHaveBeenCalledTimes(2);
+    expect(mockInvoke.mock.calls[0][0]).toContainEqual({
+      role: "assistant",
+      content: previousAssistantAnswer
+    });
+    expect(mockInvoke.mock.calls[0][0]).toContainEqual({
+      role: "user",
+      content: "summarize it and write the response in arabic"
+    });
+    expect(mockInvoke.mock.calls[1][0]).toContainEqual({
+      role: "assistant",
+      content: previousAssistantAnswer
+    });
+    expect(mockInvoke.mock.calls[1][0]).toContainEqual({
+      role: "user",
+      content: "summarize it and write the response in arabic"
+    });
+    expect(mockInvoke.mock.calls[1][0][0].content).toContain("Do not claim there is no text to summarize");
+  });
 });

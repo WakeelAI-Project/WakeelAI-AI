@@ -1,26 +1,41 @@
 import { jest } from "@jest/globals";
 
+const mockHandleChat = jest.fn().mockResolvedValue({
+  conversationId: "conv-123",
+  message: "Mocked AI response.",
+  type: "text",
+  sources: [],
+  actions: []
+});
+const mockConversationMessages = [
+  { role: "user", content: "What are the annual leave rules under Egyptian Labor Law?" },
+  { role: "assistant", content: "**Annual Leave**\n\nEmployees get annual leave according to the law." },
+];
+const mockEnsureConversation = jest.fn().mockResolvedValue();
+const mockGetRecentHistoryForContext = jest.fn().mockResolvedValue(mockConversationMessages);
+const mockPersistUserMessage = jest.fn().mockResolvedValue();
+const mockPersistAssistantMessage = jest.fn().mockResolvedValue();
+const mockGetHistory = jest.fn().mockResolvedValue({});
+const mockGetUserConversations = jest.fn().mockResolvedValue({});
+
 // We mock orchestrator.service.js because it now contains real LangChain/LLM logic
 jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
-  handleChat: jest.fn().mockResolvedValue({
-    conversationId: "conv-123",
-    message: "Mocked AI response.",
-    type: "text",
-    sources: [],
-    actions: []
-  })
+  handleChat: mockHandleChat
 }));
 
 // We mock chat-history.service.js so unit tests don't try to connect to MongoDB
 jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
-  persistUserMessage: jest.fn().mockResolvedValue(),
-  persistAssistantMessage: jest.fn().mockResolvedValue(),
-  getHistory: jest.fn().mockResolvedValue({}),
-  getUserConversations: jest.fn().mockResolvedValue({})
+  ensureConversation: mockEnsureConversation,
+  getRecentHistoryForContext: mockGetRecentHistoryForContext,
+  persistUserMessage: mockPersistUserMessage,
+  persistAssistantMessage: mockPersistAssistantMessage,
+  getHistory: mockGetHistory,
+  getUserConversations: mockGetUserConversations
 }));
 
 const request = (await import("supertest")).default;
 const app = (await import("../src/app.js")).default;
+const { config } = await import("../src/config/env.js");
 
 describe("POST /api/ai/chat", () => {
   beforeEach(() => {
@@ -42,15 +57,11 @@ describe("POST /api/ai/chat", () => {
   };
 
   const validHeaders = {
-    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
     "X-User-Id": "user-456",
     "X-Company-Id": "company-789",
     "X-Role": "employee",
   };
-
-  beforeAll(() => {
-    process.env.WAKEEL_INTERNAL_API_KEY = "your_internal_api_key_here";
-  });
 
   it("returns 200 for a valid request with canonical context object", async () => {
     const expectedResponse = {
@@ -65,6 +76,41 @@ describe("POST /api/ai/chat", () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(expectedResponse);
+  });
+
+  it("loads previous scoped history before orchestration and persists the current turn after", async () => {
+    const response = await request(app).post("/api/ai/chat").set(validHeaders).send(validPayload);
+
+    expect(response.status).toBe(200);
+    expect(mockEnsureConversation).toHaveBeenCalledWith(
+      "conv-123",
+      expect.objectContaining({
+        userId: "user-456",
+        companyId: "company-789",
+        conversationId: "conv-123",
+      })
+    );
+    expect(mockGetRecentHistoryForContext).toHaveBeenCalledWith(
+      "conv-123",
+      expect.objectContaining({
+        userId: "user-456",
+        companyId: "company-789",
+      })
+    );
+    expect(mockHandleChat).toHaveBeenCalledWith(expect.objectContaining({
+      message: validPayload.message,
+      conversationId: "conv-123",
+      conversationMessages: mockConversationMessages,
+    }));
+
+    const historyLoadOrder = mockGetRecentHistoryForContext.mock.invocationCallOrder[0];
+    const orchestrationOrder = mockHandleChat.mock.invocationCallOrder[0];
+    const userPersistOrder = mockPersistUserMessage.mock.invocationCallOrder[0];
+    const assistantPersistOrder = mockPersistAssistantMessage.mock.invocationCallOrder[0];
+
+    expect(historyLoadOrder).toBeLessThan(orchestrationOrder);
+    expect(orchestrationOrder).toBeLessThan(userPersistOrder);
+    expect(userPersistOrder).toBeLessThan(assistantPersistOrder);
   });
 
   it("returns 400 if message is missing", async () => {
@@ -127,7 +173,7 @@ describe("POST /api/ai/chat", () => {
   it("returns 400 if M2M identity headers are missing", async () => {
     const response = await request(app)
       .post("/api/ai/chat")
-      .set({ "X-Internal-API-Key": "your_internal_api_key_here" })
+      .set({ "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY })
       .send(validPayload);
     expect(response.status).toBe(400);
   });
@@ -156,7 +202,7 @@ describe("GET /api/ai/chat/conversations", () => {
   });
 
   const validHeaders = {
-    "X-Internal-API-Key": "your_internal_api_key_here",
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
     "X-User-Id": "user-456",
     "X-Company-Id": "company-789",
     "X-Role": "employee",
@@ -167,14 +213,13 @@ describe("GET /api/ai/chat/conversations", () => {
       conversations: [{ conversationId: "conv-1", role: "employee" }],
       pagination: { total: 1 }
     };
-    const chatHistoryService = await import("../src/services/chat-history.service.js");
-    chatHistoryService.getUserConversations.mockResolvedValue(expectedResponse);
+    mockGetUserConversations.mockResolvedValue(expectedResponse);
 
     const response = await request(app).get("/api/ai/chat/conversations").set(validHeaders);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(expectedResponse);
-    expect(chatHistoryService.getUserConversations).toHaveBeenCalledWith(
+    expect(mockGetUserConversations).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user-456",
         companyId: "company-789"
@@ -192,7 +237,7 @@ describe("GET /api/ai/chat/conversations", () => {
   it("returns 400 if M2M identity headers are missing", async () => {
     const response = await request(app)
       .get("/api/ai/chat/conversations")
-      .set({ "X-Internal-API-Key": "your_internal_api_key_here" });
+      .set({ "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY });
     expect(response.status).toBe(400);
   });
 });
