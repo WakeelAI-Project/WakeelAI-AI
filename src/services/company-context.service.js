@@ -2,7 +2,11 @@ import { z } from "zod";
 import { logger } from "../shared/logger.js";
 import { getCompanyContextApi } from "../integrations/wakeel/company-api.js";
 
-// Zod schema for Company Context validation
+// Zod schema for Company Context validation.
+// Field names match the .NET CompanyContextResponse [JsonPropertyName] attributes.
+// registered_at arrives as an ISO-8601 string (System.Text.Json serializes DateTime as string).
+// policy_available is included because .NET returns it and the LLM uses it to advise
+// whether company-policy RAG is available.
 const CompanyContextSchema = z.object({
   id: z.string().min(1, "id is required"),
   name: z.string().min(1, "name is required"),
@@ -14,6 +18,7 @@ const CompanyContextSchema = z.object({
   logo_url: z.string().optional().nullable(),
   working_hours: z.string().optional().nullable(),
   registered_at: z.string().optional().nullable(),
+  policy_available: z.boolean().optional().nullable(),
 });
 
 /**
@@ -32,14 +37,35 @@ export const getCompanyContext = async (aiContext) => {
     logger.info(`[CompanyContextService] Fetching company context for companyId=${aiContext.companyId}`);
     const rawContext = await getCompanyContextApi(aiContext);
     
+    logger.info(
+      `[CompanyContextService] Received company context response. ` +
+      `Fields present: [${Object.keys(rawContext || {}).join(", ")}]`
+    );
+
     // Validate response
     const parsed = CompanyContextSchema.safeParse(rawContext);
     if (!parsed.success) {
-      logger.error("[CompanyContextService] Invalid response from .NET backend:", parsed.error.format());
+      logger.error(
+        "[CompanyContextService] Invalid response shape from .NET backend. " +
+        "Validation errors: " + JSON.stringify(parsed.error.format())
+      );
       throw new Error("Invalid company context received from backend.");
     }
     
-    return parsed.data;
+    // Return a normalized context object with human-readable labels.
+    // The orchestrator injects this into the final LLM prompt as JSON;
+    // explicit field names help the LLM match company attributes to user questions.
+    return {
+      companyId: parsed.data.id,
+      companyName: parsed.data.name,
+      industry: parsed.data.industry ?? null,
+      workingHours: parsed.data.working_hours ?? null,
+      address: parsed.data.address ?? null,
+      phoneNumber: parsed.data.phone_number ?? null,
+      email: parsed.data.email ?? null,
+      registeredAt: parsed.data.registered_at ?? null,
+      policyAvailable: parsed.data.policy_available ?? false,
+    };
   } catch (error) {
     logger.error(`[CompanyContextService] Failed to retrieve company context: ${error.message}`);
     // Rethrow to be handled by the orchestrator/skill gracefully

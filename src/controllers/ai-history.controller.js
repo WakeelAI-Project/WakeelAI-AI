@@ -51,3 +51,24 @@ export const getConversations = async (req, res, next) => {
     next(error);
   }
 };
+
+/**
+ * AI Delete Conversation Controller
+ * Deletes a conversation and its history.
+ *
+ * @param {import("express").Request} req 
+ * @param {import("express").Response} res 
+ * @param {import("express").NextFunction} next 
+ */
+export const deleteConversation = async (req, res, next) => {
+  try {
+    const { conversationId } = req.params;
+    const context = req.aiContext;
+
+    await chatHistoryService.deleteConversation(conversationId, context);
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+};

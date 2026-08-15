@@ -22,6 +22,10 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    title: {
+      type: String,
+      default: null,
+    },
   },
   {
     collection: "conversations",

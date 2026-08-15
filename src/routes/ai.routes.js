@@ -3,7 +3,7 @@ import { z } from "zod";
 import { validateRequest } from "../middleware/validate-request.js";
 import { requireInternalAuth } from "../middleware/internal-auth.middleware.js";
 import { postChat } from "../controllers/ai-chat.controller.js";
-import { getHistory, getConversations } from "../controllers/ai-history.controller.js";
+import { getHistory, getConversations, deleteConversation } from "../controllers/ai-history.controller.js";
 
 const router = Router();
 
@@ -68,6 +68,17 @@ router.get(
   "/chat/conversations",
   validateRequest({ query: conversationsQuerySchema }),
   getConversations
+);
+
+const deleteConversationParamsSchema = z.object({
+  conversationId: z.string().trim().min(1, "Conversation ID cannot be empty"),
+});
+
+// Register the DELETE /chat/conversations/:conversationId route
+router.delete(
+  "/chat/conversations/:conversationId",
+  validateRequest({ params: deleteConversationParamsSchema }),
+  deleteConversation
 );
 
 export default router;

@@ -40,13 +40,18 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
     const response = await fetch(url, options);
 
     if (!response.ok) {
+      logger.warn(
+        `[WakeelClient] Non-OK response: ${method} ${endpoint} → HTTP ${response.status}. ` +
+        `companyId=${aiContext.companyId} userId=${aiContext.userId}`
+      );
+
       if (response.status === 404) {
         const error = new Error(`Resource not found at ${endpoint}`);
         error.code = "NOT_FOUND";
         error.status = 404;
         throw error;
       }
-      
+
       if (response.status === 401 || response.status === 403) {
         const error = new Error(`Authentication/Authorization failed for ${endpoint}`);
         error.code = "UNAUTHORIZED_BACKEND";

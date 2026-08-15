@@ -67,6 +67,13 @@ export async function persistUserMessage(conversationId, context, messageContent
       role: "user",
       content: messageContent,
     });
+
+    // 3. Set conversation title from the first message (if not already set)
+    // Derive a reasonable title by truncating to 60 characters
+    const derivedTitle = messageContent.length > 60 
+      ? messageContent.substring(0, 57) + "..."
+      : messageContent;
+    await repository.setConversationTitleIfNotExists(conversationId, userId, companyId, derivedTitle);
   } catch (error) {
     if (error.code === "CONVERSATION_NOT_FOUND") {
       throw error;
@@ -217,6 +224,7 @@ export async function getUserConversations(context, page = 1, limit = 20) {
   // 3. Format response
   const formattedConversations = conversations.map(conv => ({
     conversationId: conv.conversationId,
+    title: conv.title,
     role: conv.role,
     createdAt: conv.createdAt,
     updatedAt: conv.updatedAt,
@@ -231,4 +239,25 @@ export async function getUserConversations(context, page = 1, limit = 20) {
       hasNextPage: safePage * safeLimit < total,
     }
   };
+}
+
+/**
+ * Deletes a conversation for a user.
+ * Enforces tenant isolation.
+ *
+ * @param {string} conversationId
+ * @param {import("../contracts/index.js").AIContext} context
+ * @returns {Promise<boolean>}
+ */
+export async function deleteConversation(conversationId, context) {
+  const { userId, companyId } = context;
+  
+  // deleteConversation repository method inherently scopes to userId and companyId
+  const deleted = await repository.deleteConversation(conversationId, userId, companyId);
+  
+  if (!deleted) {
+    throw createConversationNotFoundError();
+  }
+  
+  return true;
 }
