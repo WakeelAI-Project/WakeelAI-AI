@@ -28,6 +28,9 @@ const CompanyContextSchema = z.object({
  * @returns {Promise<Object>}
  */
 export const getCompanyContext = async (aiContext) => {
+  logger.info("[CompanyContextService] >>> ENTERED getCompanyContext <<<");
+  logger.info(`[CompanyContextService] companyId present = ${Boolean(aiContext?.companyId)}`);
+
   if (!aiContext || !aiContext.companyId) {
     logger.warn("[CompanyContextService] Missing required AI Context (companyId)");
     throw new Error("Missing required AI Context for company context retrieval.");
@@ -35,7 +38,9 @@ export const getCompanyContext = async (aiContext) => {
 
   try {
     logger.info(`[CompanyContextService] Fetching company context for companyId=${aiContext.companyId}`);
+    logger.info("[CompanyContextService] >>> CALLING getCompanyContextApi <<<");
     const rawContext = await getCompanyContextApi(aiContext);
+    logger.info("[CompanyContextService] >>> API RETURNED <<<");
     
     logger.info(
       `[CompanyContextService] Received company context response. ` +
@@ -51,11 +56,13 @@ export const getCompanyContext = async (aiContext) => {
       );
       throw new Error("Invalid company context received from backend.");
     }
+    logger.info("[CompanyContextService] >>> VALIDATION PASSED <<<");
+    logger.info(`[CompanyContextService] companyName present = ${Boolean(parsed.data.name)}`);
     
     // Return a normalized context object with human-readable labels.
     // The orchestrator injects this into the final LLM prompt as JSON;
     // explicit field names help the LLM match company attributes to user questions.
-    return {
+    const normalizedContext = {
       companyId: parsed.data.id,
       companyName: parsed.data.name,
       industry: parsed.data.industry ?? null,
@@ -66,6 +73,9 @@ export const getCompanyContext = async (aiContext) => {
       registeredAt: parsed.data.registered_at ?? null,
       policyAvailable: parsed.data.policy_available ?? false,
     };
+
+    logger.info("[CompanyContextService] >>> RETURNING COMPANY CONTEXT <<<");
+    return normalizedContext;
   } catch (error) {
     logger.error(`[CompanyContextService] Failed to retrieve company context: ${error.message}`);
     // Rethrow to be handled by the orchestrator/skill gracefully

@@ -21,12 +21,26 @@ const buildContextError = (err, source) => ({
 export const gatherContextBoundary = async (requiredContext, userContext) => {
   const gatheredData = {};
 
-  if (!requiredContext) return gatheredData;
+  logger.info("[ContextBoundary] gatherContextBoundary called");
+  logger.info(`[ContextBoundary] requested contexts = ${JSON.stringify(requiredContext || [])}`);
+  logger.info(
+    "[ContextBoundary] trusted context received. " +
+    `userId present=${Boolean(userContext?.userId)} ` +
+    `companyId present=${Boolean(userContext?.companyId)} ` +
+    `role present=${Boolean(userContext?.role)}`
+  );
+
+  if (!requiredContext) {
+    logger.warn("[ContextBoundary] requiredContext missing; returning empty gatheredData");
+    return gatheredData;
+  }
 
   if (requiredContext.includes("employee")) {
+    logger.info("[ContextBoundary] Processing context type = employee");
     logger.info("[Orchestrator] Gathering employee context via boundary...");
     try {
       gatheredData.employee = await getEmployeeContext(userContext);
+      logger.info("[ContextBoundary] Employee context successfully gathered");
     } catch (err) {
       logger.error(`[Orchestrator] Failed to gather employee context: ${err.message}`);
       gatheredData.employee = buildContextError(err, "employee");
@@ -34,9 +48,16 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
   }
   
   if (requiredContext.includes("company")) {
+    logger.info("[ContextBoundary] Processing context type = company");
     logger.info("[Orchestrator] Gathering company context via boundary...");
     try {
+      logger.info("[ContextBoundary] Calling CompanyContextService...");
       gatheredData.company = await getCompanyContext(userContext);
+      logger.info(
+        "[ContextBoundary] Company context successfully gathered. " +
+        `company context present=${Boolean(gatheredData.company)} ` +
+        `company name present=${Boolean(gatheredData.company?.companyName)}`
+      );
     } catch (err) {
       logger.error(`[Orchestrator] Failed to gather company context: ${err.message}`);
       gatheredData.company = buildContextError(err, "company");
@@ -44,10 +65,12 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
   }
 
   if (requiredContext.includes("rag")) {
+    logger.info("[ContextBoundary] Processing context type = rag");
     logger.info("[Orchestrator] Gathering RAG context via boundary stub...");
     gatheredData.knowledge = "knowledge base stub";
   }
 
+  logger.info(`[ContextBoundary] Returning gatheredData keys = ${JSON.stringify(Object.keys(gatheredData))}`);
   return gatheredData;
 };
 

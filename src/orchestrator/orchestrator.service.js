@@ -473,7 +473,9 @@ const buildLeaveRequestResponse = (conversationId, toolResult) => {
  */
 async function determineIntent(message, conversationMessages = []) {
   try {
+    logger.info(`[Orchestrator] Intent detection started for message="${message}"`);
     const analysis = await intentLlm.invoke(buildIntentMessages(message, conversationMessages));
+    logger.info(`[Orchestrator] Raw intent result = ${JSON.stringify(analysis)}`);
     return normalizeIntent(analysis);
   } catch (error) {
     logger.error(`[Orchestrator] Failed to determine intent: ${error.message}`);
@@ -498,6 +500,13 @@ async function determineIntent(message, conversationMessages = []) {
  */
 export const handleChat = async ({ message, conversationId, context, conversationMessages = [] }) => {
   logger.info(`[Orchestrator] Starting orchestration for conversation: ${conversationId}`);
+  logger.info(`[Orchestrator] Received message: "${message}"`);
+  logger.info(
+    "[Orchestrator] User context received. " +
+    `userId present=${Boolean(context?.userId)} ` +
+    `companyId present=${Boolean(context?.companyId)} ` +
+    `role present=${Boolean(context?.role)}`
+  );
 
   try {
     // 1. Initialize Orchestration Context
@@ -510,12 +519,23 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     );
     logger.info(`[Orchestrator] Intent determined: ${orchContext.intent.intent}`);
     logger.info(
-      `[Orchestrator] Required context: [` +
-      `${(orchContext.intent.requiresContext || []).join(", ")}]`
+      `[Orchestrator] Intent result = ${JSON.stringify(orchContext.intent)}`
+    );
+    logger.info(
+      `[Orchestrator] requiresContext = ${JSON.stringify(orchContext.intent.requiresContext || [])}`
     );
 
     // 3. Gather Required Context (Knowledge, Employee, Company)
+    logger.info(
+      `[Orchestrator] Calling gatherContextBoundary with requiresContext=${JSON.stringify(orchContext.intent.requiresContext || [])} ` +
+      `companyId present=${Boolean(orchContext.userContext?.companyId)}`
+    );
     orchContext.gatheredData = await gatherContextBoundary(orchContext.intent.requiresContext, orchContext.userContext);
+    logger.info(
+      `[Orchestrator] gatherContextBoundary returned keys=${JSON.stringify(Object.keys(orchContext.gatheredData || {}))} ` +
+      `company context present=${Boolean(orchContext.gatheredData?.company && !orchContext.gatheredData.company.error)} ` +
+      `company name present=${Boolean(orchContext.gatheredData?.company?.companyName)}`
+    );
 
     // 4. Execute Capabilities (Skills / Tools)
     orchContext.capabilityResults = await executeCapabilitiesBoundary(orchContext.intent.requiresCapabilities, orchContext);
@@ -540,6 +560,15 @@ export const handleChat = async ({ message, conversationId, context, conversatio
       gatheredData: orchContext.gatheredData,
       capabilityResults: orchContext.capabilityResults,
     });
+    const finalSystemPrompt = finalMessages.find((item) => item.role === "system")?.content || "";
+    logger.info(
+      `[Orchestrator] Final LLM prompt company context check. ` +
+      `contains companyName=${finalSystemPrompt.includes("companyName")} ` +
+      `contains actual companyName=${Boolean(
+        orchContext.gatheredData?.company?.companyName
+        && finalSystemPrompt.includes(orchContext.gatheredData.company.companyName)
+      )}`
+    );
 
     if (process.env.NODE_ENV === "test" || process.env.WAKEEL_DEBUG_LLM_CONTEXT === "true") {
       logger.debug("[Orchestrator] Final LLM context summary", {
@@ -557,6 +586,7 @@ export const handleChat = async ({ message, conversationId, context, conversatio
       });
     }
 
+    logger.info("[Orchestrator] Sending final prompt to LLM");
     const finalResponse = await llm.invoke(finalMessages);
     const finalResponseContent = String(finalResponse.content ?? "");
     const trustedCompanyAnswer = buildTrustedCompanyAnswer(

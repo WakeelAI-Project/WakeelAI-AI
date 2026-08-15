@@ -1,5 +1,9 @@
 import { config } from "../config/env.js";
 
+const logInternalAuth = (message) => {
+  console.log(`[InternalAuth] ${message}`);
+};
+
 /**
  * Middleware to enforce internal service-to-service authentication.
  * 
@@ -13,6 +17,7 @@ import { config } from "../config/env.js";
  */
 export const requireInternalAuth = (req, res, next) => {
   const internalKey = req.header("X-Internal-API-Key");
+  logInternalAuth(`Request received for ${req.method} ${req.path}. internal key present=${Boolean(internalKey)}`);
 
   // 1. Authenticate the internal request
   if (!internalKey || internalKey !== config.WAKEEL_INTERNAL_API_KEY) {
@@ -29,6 +34,12 @@ export const requireInternalAuth = (req, res, next) => {
   const userId = req.header("X-User-Id");
   const companyId = req.header("X-Company-Id");
   const role = req.header("X-Role");
+  logInternalAuth(
+    "Trusted identity headers received. " +
+    `userId present=${Boolean(userId)} ` +
+    `companyId present=${Boolean(companyId)} ` +
+    `role present=${Boolean(role)}`
+  );
 
   if (!userId || !companyId || !role) {
     return res.status(400).json({

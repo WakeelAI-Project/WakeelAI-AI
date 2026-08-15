@@ -73,6 +73,9 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
   }
 
   try {
+    logger.info(`[WakeelClient] baseURL = ${config.WAKEEL_API_BASE_URL}`);
+    logger.info(`[WakeelClient] method = ${method}`);
+    logger.info(`[WakeelClient] path = ${endpoint}`);
     logger.info(
       `[WakeelClient] Request: ${method} ${url}. ` +
       `Headers=${JSON.stringify(summarizeHeaders(headers))}`
@@ -85,6 +88,8 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
       `[WakeelClient] Response: ${method} ${url} -> HTTP ${response.status}. ` +
       `Body=${JSON.stringify(summarizeBody(parsed))}`
     );
+    logger.info(`[WakeelClient] response status = ${response.status}`);
+    logger.info(`[WakeelClient] response fields = ${Object.keys(parsed || {}).join(",")}`);
 
     if (!response.ok) {
       logger.warn(
