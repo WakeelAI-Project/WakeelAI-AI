@@ -40,6 +40,14 @@ if (!parsedEnv.success && process.env.NODE_ENV !== "test") {
 
 export const config = parsedEnv.success ? parsedEnv.data : process.env;
 
+if (process.env.NODE_ENV === "production" && parsedEnv.success) {
+  const wakeelApiHost = new URL(config.WAKEEL_API_BASE_URL).hostname;
+  if (wakeelApiHost === "localhost" || wakeelApiHost === "127.0.0.1") {
+    console.error("❌ WAKEEL_API_BASE_URL cannot point to localhost in production.");
+    process.exit(1);
+  }
+}
+
 export const llmConfig = {
   apiKey: config.LLM_API_KEY,
   modelName: config.LLM_MODEL,

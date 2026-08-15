@@ -2,6 +2,15 @@ import { logger } from "../shared/logger.js";
 import { getEmployeeContext } from "../services/employee-context.service.js";
 import { getCompanyContext } from "../services/company-context.service.js";
 
+const buildContextError = (err, source) => ({
+  error: {
+    source,
+    code: err?.code || "CONTEXT_RETRIEVAL_FAILED",
+    status: err?.status || null,
+    message: err?.message || "Failed to retrieve context.",
+  },
+});
+
 /**
  * Boundary for context gatherers (RAG, Employee, Company).
  * 
@@ -20,7 +29,7 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
       gatheredData.employee = await getEmployeeContext(userContext);
     } catch (err) {
       logger.error(`[Orchestrator] Failed to gather employee context: ${err.message}`);
-      gatheredData.employee = { error: "Failed to retrieve employee context." };
+      gatheredData.employee = buildContextError(err, "employee");
     }
   }
   
@@ -30,7 +39,7 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
       gatheredData.company = await getCompanyContext(userContext);
     } catch (err) {
       logger.error(`[Orchestrator] Failed to gather company context: ${err.message}`);
-      gatheredData.company = { error: "Failed to retrieve company context." };
+      gatheredData.company = buildContextError(err, "company");
     }
   }
 

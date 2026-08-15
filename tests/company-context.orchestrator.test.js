@@ -43,11 +43,15 @@ const baseContext = {
 };
 
 const COMPANY_CONTEXT_FIXTURE = {
-  id: "company-1",
-  name: "Wakeel Technologies",
+  companyId: "company-1",
+  companyName: "Wakeel Technologies",
   industry: "Technology",
-  working_hours: "09:00-17:00",
-  policy_available: true,
+  workingHours: "09:00-17:00",
+  address: "Cairo",
+  phoneNumber: null,
+  email: "hr@example.com",
+  registeredAt: "2026-01-01T00:00:00Z",
+  policyAvailable: true,
 };
 
 describe("Issue 1 - Company Context: Orchestrator routes company questions correctly", () => {
@@ -81,6 +85,34 @@ describe("Issue 1 - Company Context: Orchestrator routes company questions corre
     // 2. Final response contains the company name
     expect(result.message).toContain("Wakeel Technologies");
     expect(result.conversationId).toBe("conv-1");
+  });
+
+  it("forces company context for the production reproduction phrase when LLM intent misses it", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "general_conversation",
+      requiresCapabilities: [],
+      requiresContext: [],
+    });
+    mockInvoke.mockResolvedValueOnce({
+      content: "Your company name is Wakeel Technologies.",
+    });
+    mockGetCompanyContext.mockResolvedValueOnce(COMPANY_CONTEXT_FIXTURE);
+
+    const result = await handleChat({
+      message: "what is my company name",
+      conversationId: "conv-prod-repro",
+      context: baseContext,
+    });
+
+    expect(mockGetCompanyContext).toHaveBeenCalledTimes(1);
+    expect(mockGetCompanyContext).toHaveBeenCalledWith(
+      expect.objectContaining({ companyId: "company-1" })
+    );
+
+    const finalLlmMessages = mockInvoke.mock.calls[1][0];
+    const systemMsg = finalLlmMessages.find((m) => m.role === "system");
+    expect(systemMsg.content).toContain('"companyName": "Wakeel Technologies"');
+    expect(result.message).toContain("Wakeel Technologies");
   });
 
   it("should pass company name to the final LLM system prompt context", async () => {
@@ -126,6 +158,30 @@ describe("Issue 1 - Company Context: Orchestrator routes company questions corre
 
     expect(mockGetCompanyContext).toHaveBeenCalledTimes(1);
     expect(result.message).toContain("Technology");
+  });
+
+  it("fetches company context once for name plus working hours", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "company_question",
+      requiresCapabilities: [],
+      requiresContext: ["company"],
+    });
+    mockInvoke.mockResolvedValueOnce({
+      content: "Your company is Wakeel Technologies and its working hours are 09:00-17:00.",
+    });
+    mockGetCompanyContext.mockResolvedValueOnce(COMPANY_CONTEXT_FIXTURE);
+
+    await handleChat({
+      message: "Tell me my company name and working hours.",
+      conversationId: "conv-hours",
+      context: baseContext,
+    });
+
+    expect(mockGetCompanyContext).toHaveBeenCalledTimes(1);
+    const finalLlmMessages = mockInvoke.mock.calls[1][0];
+    const systemMsg = finalLlmMessages.find((m) => m.role === "system");
+    expect(systemMsg.content).toContain('"companyName": "Wakeel Technologies"');
+    expect(systemMsg.content).toContain('"workingHours": "09:00-17:00"');
   });
 
   it("should NOT call company context for a leave balance question (employee_question)", async () => {
@@ -184,7 +240,10 @@ describe("Issue 1 - Company Context: Orchestrator routes company questions corre
     mockInvoke.mockResolvedValueOnce({
       content: "I was unable to retrieve company information at this time.",
     });
-    mockGetCompanyContext.mockRejectedValueOnce(new Error("Backend 502"));
+    const backendError = new Error("Backend error 502 from /api/ai/company-context");
+    backendError.code = "BACKEND_ERROR";
+    backendError.status = 502;
+    mockGetCompanyContext.mockRejectedValueOnce(backendError);
 
     const result = await handleChat({
       message: "What is the name of my company?",
@@ -194,5 +253,32 @@ describe("Issue 1 - Company Context: Orchestrator routes company questions corre
 
     expect(result).toHaveProperty("message");
     expect(result.conversationId).toBe("conv-5");
+    const finalLlmMessages = mockInvoke.mock.calls[1][0];
+    const systemMsg = finalLlmMessages.find((m) => m.role === "system");
+    expect(systemMsg.content).toContain('"code": "BACKEND_ERROR"');
+    expect(systemMsg.content).not.toContain('"companyName": "Wakeel Technologies"');
+  });
+
+  it("surfaces missing trusted companyId as controlled company-context failure", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "company_question",
+      requiresCapabilities: [],
+      requiresContext: ["company"],
+    });
+    mockInvoke.mockResolvedValueOnce({
+      content: "I could not retrieve your company context right now.",
+    });
+    mockGetCompanyContext.mockRejectedValueOnce(
+      new Error("Missing required AI Context for company context retrieval.")
+    );
+
+    const result = await handleChat({
+      message: "what is my company name",
+      conversationId: "conv-missing-company",
+      context: { ...baseContext, companyId: undefined },
+    });
+
+    expect(mockGetCompanyContext).toHaveBeenCalledTimes(1);
+    expect(result.message).not.toContain("Wakeel Technologies");
   });
 });
