@@ -221,13 +221,32 @@ export async function getUserConversations(context, page = 1, limit = 20) {
   // 2. Retrieve conversations strictly isolated to userId and companyId
   const { conversations, total } = await repository.getConversations(userId, companyId, safePage, safeLimit);
 
-  // 3. Format response
-  const formattedConversations = conversations.map(conv => ({
-    conversationId: conv.conversationId,
-    title: conv.title,
-    role: conv.role,
-    createdAt: conv.createdAt,
-    updatedAt: conv.updatedAt,
+  // 3. Format response and backfill missing titles
+  const formattedConversations = await Promise.all(conversations.map(async conv => {
+    let title = conv.title;
+    
+    if (!title) {
+      const { messages } = await repository.getMessages(conv.conversationId, userId, companyId, 1, 1);
+      if (messages.length > 0 && messages[0].role === 'user') {
+        const content = messages[0].content;
+        title = content.length > 60 ? content.substring(0, 57) + "..." : content;
+        
+        // Optimistically backfill the title in the database
+        const backfillPromise = repository.setConversationTitleIfNotExists(conv.conversationId, userId, companyId, title);
+        if (backfillPromise && typeof backfillPromise.catch === 'function') {
+          backfillPromise.catch(e => {
+            logger.warn(`Failed to backfill title for conversation ${conv.conversationId}: ${e.message}`);
+          });
+        }
+      }
+    }
+    return {
+      conversationId: conv.conversationId,
+      title: title || "New conversation",
+      role: conv.role,
+      createdAt: conv.createdAt,
+      updatedAt: conv.updatedAt,
+    };
   }));
 
   return {

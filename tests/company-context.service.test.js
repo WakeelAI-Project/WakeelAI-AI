@@ -31,7 +31,17 @@ describe("CompanyContextService", () => {
     const result = await getCompanyContext(validAiContext);
 
     expect(getCompanyContextApi).toHaveBeenCalledWith(validAiContext);
-    expect(result).toEqual(validResponse);
+    expect(result).toEqual({
+      companyId: "company-456",
+      companyName: "Example Company",
+      industry: null,
+      workingHours: null,
+      address: null,
+      phoneNumber: null,
+      email: null,
+      registeredAt: null,
+      policyAvailable: false,
+    });
   });
 
   it("should throw an error if companyId is missing from context", async () => {

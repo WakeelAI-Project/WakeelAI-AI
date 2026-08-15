@@ -40,7 +40,7 @@ describe("Document Save API Integration", () => {
 
     const result = await saveDocument(aiContext, validPayload);
 
-    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/documents/save", aiContext, validPayload);
+    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/ai/documents/save", aiContext, validPayload);
     expect(result).toEqual(mockResponse);
   });
 
@@ -58,7 +58,7 @@ describe("Document Save API Integration", () => {
 
     const result = await saveDocument(aiContext, minimalPayload);
 
-    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/documents/save", aiContext, minimalPayload);
+    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/ai/documents/save", aiContext, minimalPayload);
     expect(result).toEqual(mockResponse);
   });
 
@@ -76,7 +76,7 @@ describe("Document Save API Integration", () => {
 
     const result = await saveDocument(aiContext, payloadWithoutEmployeeId);
 
-    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/documents/save", aiContext, payloadWithoutEmployeeId);
+    expect(wakeelFetch).toHaveBeenCalledWith("POST", "/api/ai/documents/save", aiContext, payloadWithoutEmployeeId);
     expect(result).toEqual(mockResponse);
   });
 

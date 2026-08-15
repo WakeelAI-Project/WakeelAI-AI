@@ -6,7 +6,8 @@ jest.unstable_mockModule("../src/data-access/chat-history.repository.js", () => 
   findConversation: jest.fn(),
   getMessages: jest.fn(),
   getRecentMessages: jest.fn(),
-  getConversations: jest.fn()
+  getConversations: jest.fn(),
+  setConversationTitleIfNotExists: jest.fn()
 }));
 
 const chatHistoryService = await import("../src/services/chat-history.service.js");
