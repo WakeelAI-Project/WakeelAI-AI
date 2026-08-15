@@ -19,6 +19,7 @@ const IntentSchema = z.object({
     "calculation",
     "document_generation",
     "employee_question",
+    "company_question",
     "company_policy_question",
     "labor_law_question",
     "create_leave_draft",
@@ -96,12 +97,39 @@ const formatConversationHistoryForDebug = (messages = []) => (
     : "No previous conversation messages."
 );
 
+const INTENT_SYSTEM_PROMPT = `Analyze the current user message and determine their intent, required capabilities, and required context data sources.
+Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, and follow-up questions.
+Return only the structured JSON required by the schema.
+
+Intent values:
+- "calculation": mathematical or numerical computation (salary, totals, leave days math)
+- "document_generation": creating a document or certificate (employment cert, salary slip, etc.)
+- "employee_question": questions about the user's own profile, job title, department, leave balance, employment status
+- "company_question": questions about the company itself — name, industry, address, phone, email, working hours, registration date — anything about the company as an entity
+- "company_policy_question": questions about company HR policies, rules, procedures found in the policy handbook
+- "labor_law_question": questions about Egyptian labor law or legal regulations
+- "create_leave_draft": user wants to create or initiate a leave request
+- "submit_leave_draft": user wants to confirm/submit a pending leave draft
+- "cancel_leave_draft": user wants to cancel a leave request
+- "general_conversation": greetings, follow-ups, clarifications, or any other request
+
+requiresContext values (include ALL that apply):
+- "employee": include when the answer requires knowing the user's profile — name, job title, department, leave balance, employment status
+- "company": include when the answer requires knowing company details — company name, industry, address, working hours, contact info, registration date, or whether a policy handbook exists. ALWAYS include "company" for "company_question" intent.
+- "rag": include when the answer requires searching the company policy documents or handbook
+
+Examples:
+- "What is the name of my company?" → intent: "company_question", requiresContext: ["company"]
+- "What industry does my company operate in?" → intent: "company_question", requiresContext: ["company"]
+- "What are my company's working hours?" → intent: "company_question", requiresContext: ["company"]
+- "What is my job title?" → intent: "employee_question", requiresContext: ["employee"]
+- "How many annual leave days do I have left?" → intent: "employee_question", requiresContext: ["employee"]
+- "What is the leave policy?" → intent: "company_policy_question", requiresContext: ["rag"]`;
+
 const buildIntentMessages = (message, conversationMessages = []) => [
   {
     role: "system",
-    content: `Analyze the current user message and determine their intent, required capabilities, and required context data sources.
-Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, and follow-up questions.
-Return only the structured JSON required by the schema.`,
+    content: INTENT_SYSTEM_PROMPT,
   },
   ...normalizeConversationMessages(conversationMessages, MAX_INTENT_HISTORY_CHARS),
   {

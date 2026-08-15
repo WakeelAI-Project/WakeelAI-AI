@@ -46,7 +46,7 @@ export async function saveDocument(aiContext, payload) {
     throw new Error(`Invalid document save payload: ${parsedPayload.error.message}`);
   }
 
-  const data = await wakeelFetch("POST", "/api/documents/save", aiContext, parsedPayload.data);
+  const data = await wakeelFetch("POST", "/api/ai/documents/save", aiContext, parsedPayload.data);
 
   // Validate the response shape
   const parsed = DocumentSaveResponseSchema.safeParse(data);
