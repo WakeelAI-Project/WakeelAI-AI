@@ -5,7 +5,11 @@ import { getCompanyContext } from "./company-context.service.js";
 import { getHistory } from "./chat-history.service.js";
 import { retrieveKnowledge } from "../rag/retrieval/knowledge-retrieval.service.js";
 import { generateLegalClause } from "../llm/legal-clause-generator.js";
-import { MissingFieldSchema, ResultCardSchema, SourceSchema } from "../contracts/index.js";
+import {
+  MissingFieldSchema,
+  ResultCardSchema,
+  SourceSchema,
+} from "../contracts/index.js";
 import { logger } from "../shared/logger.js";
 
 const CONTRACT_DOCUMENT_TYPE = "Contract";
@@ -60,24 +64,26 @@ const COMPANY_FIELD_MAP = Object.freeze({
   registered_date: "registered_at",
 });
 
-const STRICT_COMPANY_FIELDS = Object.freeze(new Set([
-  "company_name",
-  "company_id",
-  "company_tax_id",
-  "tax_id",
-  "industry",
-  "company_industry",
-  "address",
-  "company_address",
-  "phone_number",
-  "phone",
-  "company_phone",
-  "email",
-  "company_email",
-  "logo_url",
-  "registered_at",
-  "registered_date",
-]));
+const STRICT_COMPANY_FIELDS = Object.freeze(
+  new Set([
+    "company_name",
+    "company_id",
+    "company_tax_id",
+    "tax_id",
+    "industry",
+    "company_industry",
+    "address",
+    "company_address",
+    "phone_number",
+    "phone",
+    "company_phone",
+    "email",
+    "company_email",
+    "logo_url",
+    "registered_at",
+    "registered_date",
+  ]),
+);
 
 const COMMON_FIELD_PATTERNS = Object.freeze({
   employee_id: [
@@ -87,7 +93,10 @@ const COMMON_FIELD_PATTERNS = Object.freeze({
   employee_name: [
     /\bemployee\s+name\s*(?:is|=|:)\s*([^,.;\n]+)/i,
     /\bname\s*(?:is|=|:)\s*([^,.;\n]+)/i,
-    /\bfor\s+([^,.;\n]+?)(?=\s+(?:as|with|starting|start|salary)|[,.;]|$)/i,
+    // Do not match to end-of-string: without a real terminator, the regex can
+    // greedily consume the rest of the sentence and incorrectly satisfy the
+    // employee_name requirement.
+    /\bfor\s+([^,.;\n]+?)(?=\s+(?:as|with|starting|start|salary)\b|[,.;])/i,
   ],
   job_title: [
     /\b(?:job\s*title|position|role)\s*(?:is|=|:)\s*([^,.;\n]+)/i,
@@ -102,9 +111,7 @@ const COMMON_FIELD_PATTERNS = Object.freeze({
   working_hours: [
     /\b(?:working\s+hours|work\s+hours|hours)\s*(?:are|is|=|:)\s*([^,.;\n]+)/i,
   ],
-  document_type: [
-    /\bdocument\s*type\s*(?:is|=|:)\s*([^,.;\n]+)/i,
-  ],
+  document_type: [/\bdocument\s*type\s*(?:is|=|:)\s*([^,.;\n]+)/i],
 });
 
 const MONTHS = Object.freeze({
@@ -124,19 +131,29 @@ const MONTHS = Object.freeze({
 
 const LABEL_ACRONYMS = Object.freeze(new Set(["id", "url"]));
 
-const DocumentGenerationInputSchema = z.object({
-  message: z.string().trim().min(1),
-  aiContext: z.object({
-    userId: z.string().trim().min(1),
-    companyId: z.string().trim().min(1),
-    role: z.string().trim().min(1),
-    conversationId: z.string().trim().min(1).optional(),
-  }).passthrough(),
-  conversationMessages: z.array(z.object({
-    role: z.string().optional(),
-    content: z.string(),
-  }).passthrough()).optional(),
-}).strict();
+const DocumentGenerationInputSchema = z
+  .object({
+    message: z.string().trim().min(1),
+    aiContext: z
+      .object({
+        userId: z.string().trim().min(1),
+        companyId: z.string().trim().min(1),
+        role: z.string().trim().min(1),
+        conversationId: z.string().trim().min(1).optional(),
+      })
+      .passthrough(),
+    conversationMessages: z
+      .array(
+        z
+          .object({
+            role: z.string().optional(),
+            content: z.string(),
+          })
+          .passthrough(),
+      )
+      .optional(),
+  })
+  .strict();
 
 const createDomainError = (code, message, status = 400) => {
   const error = new Error(message);
@@ -145,51 +162,57 @@ const createDomainError = (code, message, status = 400) => {
   return error;
 };
 
-const hasValue = (value) => (
-  value !== undefined
-  && value !== null
-  && String(value).trim().length > 0
-);
+const hasValue = (value) =>
+  value !== undefined && value !== null && String(value).trim().length > 0;
 
 const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
-const escapeHtml = (value) => String(value)
-  .replace(/&/g, "&amp;")
-  .replace(/</g, "&lt;")
-  .replace(/>/g, "&gt;")
-  .replace(/"/g, "&quot;")
-  .replace(/'/g, "&#39;");
+const escapeHtml = (value) =>
+  String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 
-const titleCase = (fieldName) => fieldName
-  .split("_")
-  .map((word) => (LABEL_ACRONYMS.has(word.toLowerCase())
-    ? word.toUpperCase()
-    : `${word.charAt(0).toUpperCase()}${word.slice(1)}`))
-  .join(" ");
+const titleCase = (fieldName) =>
+  fieldName
+    .split("_")
+    .map((word) =>
+      LABEL_ACRONYMS.has(word.toLowerCase())
+        ? word.toUpperCase()
+        : `${word.charAt(0).toUpperCase()}${word.slice(1)}`,
+    )
+    .join(" ");
 
 const inputTypeForField = (fieldName) => {
   if (fieldName === "document_type") return "dropdown";
   if (/date|registered_at/i.test(fieldName)) return "date";
-  if (/salary|amount|number|days|hours_count|duration/i.test(fieldName)) return "number";
+  if (/salary|amount|number|days|hours_count|duration/i.test(fieldName))
+    return "number";
   return "text";
 };
 
-const missingFieldFor = (fieldName) => MissingFieldSchema.parse({
-  field_name: fieldName,
-  input_type: inputTypeForField(fieldName),
-  label: titleCase(fieldName),
-  options: fieldName === "document_type"
-    ? SUPPORTED_DOCUMENT_TYPES.map((type) => type.document_type)
-    : [],
-});
+const missingFieldFor = (fieldName) =>
+  MissingFieldSchema.parse({
+    field_name: fieldName,
+    input_type: inputTypeForField(fieldName),
+    label: titleCase(fieldName),
+    options:
+      fieldName === "document_type"
+        ? SUPPORTED_DOCUMENT_TYPES.map((type) => type.document_type)
+        : [],
+  });
 
-const normalizeWhitespace = (value) => String(value).replace(/\s+/g, " ").trim();
+const normalizeWhitespace = (value) =>
+  String(value).replace(/\s+/g, " ").trim();
 
-const trimExtractedValue = (value) => normalizeWhitespace(value)
-  .replace(/^["']|["']$/g, "")
-  .replace(/\s+and\s+.*(?:\bis\b|\bare\b|=|:).*$/i, "")
-  .replace(/[.]+$/g, "")
-  .trim();
+const trimExtractedValue = (value) =>
+  normalizeWhitespace(value)
+    .replace(/^["']|["']$/g, "")
+    .replace(/\s+and\s+.*(?:\bis\b|\bare\b|=|:).*$/i, "")
+    .replace(/[.]+$/g, "")
+    .trim();
 
 const normalizeDateValue = (value, baseDate = new Date()) => {
   const trimmed = trimExtractedValue(value);
@@ -205,7 +228,9 @@ const normalizeDateValue = (value, baseDate = new Date()) => {
     return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
   }
 
-  const monthDayMatch = trimmed.match(/^([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?$/);
+  const monthDayMatch = trimmed.match(
+    /^([A-Za-z]+)\s+(\d{1,2})(?:,\s*(\d{4}))?$/,
+  );
   if (monthDayMatch) {
     const [, monthName, rawDay, rawYear] = monthDayMatch;
     const month = MONTHS[monthName.toLowerCase()];
@@ -215,7 +240,9 @@ const normalizeDateValue = (value, baseDate = new Date()) => {
     }
   }
 
-  const dayMonthMatch = trimmed.match(/^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/);
+  const dayMonthMatch = trimmed.match(
+    /^(\d{1,2})\s+([A-Za-z]+)(?:\s+(\d{4}))?$/,
+  );
   if (dayMonthMatch) {
     const [, rawDay, monthName, rawYear] = dayMonthMatch;
     const month = MONTHS[monthName.toLowerCase()];
@@ -242,14 +269,17 @@ const normalizeFieldValue = (fieldName, value, options = {}) => {
   return trimmed;
 };
 
-const labelPatternForField = (fieldName) => escapeRegex(fieldName).replace(/_/g, "\\s+");
+const labelPatternForField = (fieldName) =>
+  escapeRegex(fieldName).replace(/_/g, "\\s+");
 
-const fieldMatchesRequestedSet = (fieldName, requestedFieldNames) => (
-  requestedFieldNames.has(fieldName)
-  || fieldName === "document_type"
-);
+const fieldMatchesRequestedSet = (fieldName, requestedFieldNames) =>
+  requestedFieldNames.has(fieldName) || fieldName === "document_type";
 
-export function extractFieldValuesFromMessage(message, fieldNames = [], options = {}) {
+export function extractFieldValuesFromMessage(
+  message,
+  fieldNames = [],
+  options = {},
+) {
   const requestedFieldNames = new Set(fieldNames);
   const values = {};
 
@@ -266,7 +296,10 @@ export function extractFieldValuesFromMessage(message, fieldNames = [], options 
   }
 
   for (const fieldName of requestedFieldNames) {
-    const pattern = new RegExp(`\\b${labelPatternForField(fieldName)}\\b\\s*(?:is|are|=|:)\\s*([^,.;\\n]+)`, "i");
+    const pattern = new RegExp(
+      `\\b${labelPatternForField(fieldName)}\\b\\s*(?:is|are|=|:)\\s*([^,.;\\n]+)`,
+      "i",
+    );
     const match = message.match(pattern);
     if (match?.[1]) {
       values[fieldName] = normalizeFieldValue(fieldName, match[1], options);
@@ -274,17 +307,19 @@ export function extractFieldValuesFromMessage(message, fieldNames = [], options 
   }
 
   return Object.fromEntries(
-    Object.entries(values).filter(([, value]) => hasValue(value))
+    Object.entries(values).filter(([, value]) => hasValue(value)),
   );
 }
 
 const normalizeDocumentType = (value) => {
-  const normalized = normalizeWhitespace(value).toLowerCase().replace(/-/g, "_");
+  const normalized = normalizeWhitespace(value)
+    .toLowerCase()
+    .replace(/-/g, "_");
 
   for (const type of SUPPORTED_DOCUMENT_TYPES) {
     if (
-      normalized === type.document_type.toLowerCase()
-      || type.aliases.some((alias) => normalized === alias.toLowerCase())
+      normalized === type.document_type.toLowerCase() ||
+      type.aliases.some((alias) => normalized === alias.toLowerCase())
     ) {
       return { documentType: type.document_type };
     }
@@ -303,8 +338,12 @@ const normalizeDocumentType = (value) => {
 };
 
 export function resolveDocumentTypeFromMessages(messages) {
-  const combinedText = messages.map((message) => message.content || "").join("\n");
-  const extracted = extractFieldValuesFromMessage(combinedText, ["document_type"]);
+  const combinedText = messages
+    .map((message) => message.content || "")
+    .join("\n");
+  const extracted = extractFieldValuesFromMessage(combinedText, [
+    "document_type",
+  ]);
 
   if (extracted.document_type) {
     const explicit = normalizeDocumentType(extracted.document_type);
@@ -312,7 +351,13 @@ export function resolveDocumentTypeFromMessages(messages) {
   }
 
   for (const type of SUPPORTED_DOCUMENT_TYPES) {
-    if (type.aliases.some((alias) => new RegExp(`\\b${escapeRegex(alias.replace(/_/g, " "))}\\b`, "i").test(combinedText))) {
+    if (
+      type.aliases.some((alias) =>
+        new RegExp(`\\b${escapeRegex(alias.replace(/_/g, " "))}\\b`, "i").test(
+          combinedText,
+        ),
+      )
+    ) {
       return { documentType: type.document_type };
     }
   }
@@ -336,7 +381,9 @@ const getClauseSourceTypeLabel = (sourceTypes) => {
 
 const parsePlaceholderToken = (token) => {
   const fieldName = token.trim();
-  const aiMatch = fieldName.match(/^([A-Za-z][A-Za-z0-9_]*):([A-Za-z][A-Za-z0-9_]*)$/);
+  const aiMatch = fieldName.match(
+    /^([A-Za-z][A-Za-z0-9_]*):([A-Za-z][A-Za-z0-9_]*)$/,
+  );
 
   if (aiMatch) {
     const [, prefix, clauseKey] = aiMatch;
@@ -346,7 +393,7 @@ const parsePlaceholderToken = (token) => {
       throw createDomainError(
         "TEMPLATE_SCHEMA_INVALID",
         `Invalid AI-generated placeholder: ${fieldName}`,
-        502
+        502,
       );
     }
 
@@ -365,7 +412,7 @@ const parsePlaceholderToken = (token) => {
     throw createDomainError(
       "TEMPLATE_SCHEMA_INVALID",
       `Invalid placeholder name: ${fieldName}`,
-      502
+      502,
     );
   }
 
@@ -389,31 +436,39 @@ const parsePlaceholderToken = (token) => {
 };
 
 export function parseTemplatePlaceholders(contentTemplate) {
-  if (typeof contentTemplate !== "string" || contentTemplate.trim().length === 0) {
+  if (
+    typeof contentTemplate !== "string" ||
+    contentTemplate.trim().length === 0
+  ) {
     throw createDomainError(
       "TEMPLATE_SCHEMA_INVALID",
       "The active template has no usable HTML content.",
-      502
+      502,
     );
   }
 
   const placeholders = [];
   const placeholderPattern = /\{\{\s*([^{}]+?)\s*\}\}/g;
-  const consumedTemplate = contentTemplate.replace(placeholderPattern, (fullMatch, rawFieldName) => {
-    const placeholder = parsePlaceholderToken(rawFieldName);
+  const consumedTemplate = contentTemplate.replace(
+    placeholderPattern,
+    (fullMatch, rawFieldName) => {
+      const placeholder = parsePlaceholderToken(rawFieldName);
 
-    if (!placeholders.some((candidate) => candidate.name === placeholder.name)) {
-      placeholders.push(placeholder);
-    }
+      if (
+        !placeholders.some((candidate) => candidate.name === placeholder.name)
+      ) {
+        placeholders.push(placeholder);
+      }
 
-    return "";
-  });
+      return "";
+    },
+  );
 
   if (/\{\{|\}\}/.test(consumedTemplate)) {
     throw createDomainError(
       "TEMPLATE_SCHEMA_INVALID",
       "Malformed placeholder syntax in active template.",
-      502
+      502,
     );
   }
 
@@ -421,22 +476,23 @@ export function parseTemplatePlaceholders(contentTemplate) {
 }
 
 export function extractPlaceholders(contentTemplate) {
-  return parseTemplatePlaceholders(contentTemplate).map((placeholder) => placeholder.name);
+  return parseTemplatePlaceholders(contentTemplate).map(
+    (placeholder) => placeholder.name,
+  );
 }
 
-const getDocumentTypeConfig = (documentType) => (
-  SUPPORTED_DOCUMENT_TYPES.find((type) => type.document_type === documentType)
-);
+const getDocumentTypeConfig = (documentType) =>
+  SUPPORTED_DOCUMENT_TYPES.find((type) => type.document_type === documentType);
 
 const requiredFieldsForTemplate = (placeholders) => {
   return [...placeholders];
 };
 
-const isCompanyContextField = (fieldName) => Object.hasOwn(COMPANY_FIELD_MAP, fieldName);
+const isCompanyContextField = (fieldName) =>
+  Object.hasOwn(COMPANY_FIELD_MAP, fieldName);
 
-const clauseRequiresCompanyPolicy = (placeholder) => (
-  placeholder.source_types.includes("company-policy")
-);
+const clauseRequiresCompanyPolicy = (placeholder) =>
+  placeholder.source_types.includes("company-policy");
 
 const selectUserSuppliedFields = (values, requiredFields) => {
   const result = {};
@@ -465,7 +521,11 @@ const collectValuesFromMessages = (messages, requiredFields, options = {}) => {
     if (message.role && message.role !== "user") continue;
     Object.assign(
       collected,
-      extractFieldValuesFromMessage(message.content || "", requiredFields, options)
+      extractFieldValuesFromMessage(
+        message.content || "",
+        requiredFields,
+        options,
+      ),
     );
   }
 
@@ -479,10 +539,9 @@ const getCompanyContextAndValues = async ({
   getCompanyContextFn,
 }) => {
   const companyFields = requiredFields.filter(isCompanyContextField);
-  const needsCompanyContext = (
-    companyFields.length > 0
-    || aiGeneratedPlaceholders.some(clauseRequiresCompanyPolicy)
-  );
+  const needsCompanyContext =
+    companyFields.length > 0 ||
+    aiGeneratedPlaceholders.some(clauseRequiresCompanyPolicy);
 
   if (!needsCompanyContext) {
     return { values: {}, context: null };
@@ -492,11 +551,13 @@ const getCompanyContextAndValues = async ({
   try {
     companyContext = await getCompanyContextFn(aiContext);
   } catch (error) {
-    logger.error(`[DocumentGenerationService] Company context retrieval failed: ${error.message}`);
+    logger.error(
+      `[DocumentGenerationService] Company context retrieval failed: ${error.message}`,
+    );
     throw createDomainError(
       "COMPANY_CONTEXT_UNAVAILABLE",
       "I could not retrieve the required company context for this document.",
-      502
+      502,
     );
   }
 
@@ -535,9 +596,8 @@ const buildClauseRetrievalQuery = ({
   companyContext,
 }) => {
   const clausePurpose = placeholder.clause_key.replace(/_/g, " ");
-  const sourceFocus = sourceType === "labor-law"
-    ? "Egyptian labor law"
-    : "company policy";
+  const sourceFocus =
+    sourceType === "labor-law" ? "Egyptian labor law" : "company policy";
 
   return [
     sourceFocus,
@@ -551,24 +611,23 @@ const buildClauseRetrievalQuery = ({
     .join(" ");
 };
 
-const formatClauseSources = ({ sources, placeholder, sourceType }) => (
-  sources.map((source) => SourceSchema.parse({
-    ...source,
-    type: source.type || sourceType,
-    metadata: {
-      ...(source.metadata || {}),
-      clause_id: placeholder.name,
-      clause_key: placeholder.clause_key,
-      clause_placeholder_type: placeholder.placeholder_type,
-      clause_source_type: sourceType,
-    },
-  }))
-);
+const formatClauseSources = ({ sources, placeholder, sourceType }) =>
+  sources.map((source) =>
+    SourceSchema.parse({
+      ...source,
+      type: source.type || sourceType,
+      metadata: {
+        ...(source.metadata || {}),
+        clause_id: placeholder.name,
+        clause_key: placeholder.clause_key,
+        clause_placeholder_type: placeholder.placeholder_type,
+        clause_source_type: sourceType,
+      },
+    }),
+  );
 
-const hasSufficientRetrievedSupport = ({ chunks, sources }) => (
-  chunks.some((chunk) => hasValue(chunk?.content))
-  && sources.length > 0
-);
+const hasSufficientRetrievedSupport = ({ chunks, sources }) =>
+  chunks.some((chunk) => hasValue(chunk?.content)) && sources.length > 0;
 
 const retrieveClauseKnowledge = async ({
   placeholder,
@@ -594,13 +653,20 @@ const retrieveClauseKnowledge = async ({
         }),
         context: {
           knowledgeType,
-          companyId: knowledgeType === "company-policy" ? aiContext.companyId : undefined,
+          companyId:
+            knowledgeType === "company-policy"
+              ? aiContext.companyId
+              : undefined,
           topK: 3,
         },
       });
 
-      const retrievedChunks = Array.isArray(retrieval?.chunks) ? retrieval.chunks : [];
-      const retrievedSources = Array.isArray(retrieval?.sources) ? retrieval.sources : [];
+      const retrievedChunks = Array.isArray(retrieval?.chunks)
+        ? retrieval.chunks
+        : [];
+      const retrievedSources = Array.isArray(retrieval?.sources)
+        ? retrieval.sources
+        : [];
 
       chunks.push(...retrievedChunks);
       const formattedSources = formatClauseSources({
@@ -615,37 +681,42 @@ const retrieveClauseKnowledge = async ({
       });
     }
   } catch (error) {
-    logger.error(`[DocumentGenerationService] Knowledge retrieval failed: ${error.message}`);
+    logger.error(
+      `[DocumentGenerationService] Knowledge retrieval failed: ${error.message}`,
+    );
     throw createDomainError(
       "RAG_RETRIEVAL_FAILED",
       "I could not retrieve the required legal or policy knowledge for this document.",
-      502
+      502,
     );
   }
 
-  const hasSupportForEverySourceType = placeholder.source_types.every((sourceType) => (
-    supportBySourceType[sourceType]
-  ));
+  const hasSupportForEverySourceType = placeholder.source_types.every(
+    (sourceType) => supportBySourceType[sourceType],
+  );
 
-  if (!hasSupportForEverySourceType || !hasSufficientRetrievedSupport({ chunks, sources })) {
+  if (
+    !hasSupportForEverySourceType ||
+    !hasSufficientRetrievedSupport({ chunks, sources })
+  ) {
     throw createDomainError(
       "INSUFFICIENT_SOURCE_SUPPORT",
       `I could not find enough retrieved source support to generate ${placeholder.name}.`,
-      424
+      424,
     );
   }
 
   return { chunks, sources };
 };
 
-const sourceTextFor = (sources) => sources
-  .map((source) => source.content)
-  .filter(hasValue)
-  .join("\n");
+const sourceTextFor = (sources) =>
+  sources
+    .map((source) => source.content)
+    .filter(hasValue)
+    .join("\n");
 
-const documentValueTextFor = (values) => Object.values(values)
-  .filter(hasValue)
-  .join(" ");
+const documentValueTextFor = (values) =>
+  Object.values(values).filter(hasValue).join(" ");
 
 const extractNumbers = (text) => String(text).match(/\b\d+(?:\.\d+)?\b/g) || [];
 
@@ -666,7 +737,7 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "INSUFFICIENT_SOURCE_SUPPORT",
       `Retrieved sources were insufficient to generate ${placeholder.name}.`,
-      424
+      424,
     );
   }
 
@@ -675,7 +746,7 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "CLAUSE_GENERATION_FAILED",
       `The generated clause for ${placeholder.name} was empty.`,
-      502
+      502,
     );
   }
 
@@ -683,7 +754,7 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "GENERATED_CLAUSE_VALIDATION_FAILED",
       `The generated clause for ${placeholder.name} was too long.`,
-      502
+      502,
     );
   }
 
@@ -691,7 +762,7 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "GENERATED_CLAUSE_VALIDATION_FAILED",
       `The generated clause for ${placeholder.name} contains unsupported placeholders.`,
-      502
+      502,
     );
   }
 
@@ -699,15 +770,19 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "GENERATED_CLAUSE_VALIDATION_FAILED",
       `The generated clause for ${placeholder.name} appears to contain document-level markup.`,
-      502
+      502,
     );
   }
 
-  if (/(according to the ai|retrieved documents say|provided sources say|as an ai|source id|citation)/i.test(clause)) {
+  if (
+    /(according to the ai|retrieved documents say|provided sources say|as an ai|source id|citation)/i.test(
+      clause,
+    )
+  ) {
     throw createDomainError(
       "GENERATED_CLAUSE_VALIDATION_FAILED",
       `The generated clause for ${placeholder.name} contains unsupported meta-language.`,
-      502
+      502,
     );
   }
 
@@ -716,11 +791,14 @@ const validateGeneratedClause = ({
     ? generatedClause.source_ids
     : [];
 
-  if (sourceIds.length === 0 || sourceIds.some((sourceId) => !availableSourceIds.has(sourceId))) {
+  if (
+    sourceIds.length === 0 ||
+    sourceIds.some((sourceId) => !availableSourceIds.has(sourceId))
+  ) {
     throw createDomainError(
       "GENERATED_CLAUSE_VALIDATION_FAILED",
       `The generated clause for ${placeholder.name} does not cite retrieved sources.`,
-      502
+      502,
     );
   }
 
@@ -729,7 +807,7 @@ const validateGeneratedClause = ({
     throw createDomainError(
       "GENERATED_CLAUSE_UNSUPPORTED_CONTENT",
       `The generated clause for ${placeholder.name} contains a numeric claim not supported by sources or document values.`,
-      502
+      502,
     );
   }
 
@@ -780,11 +858,13 @@ const generateAiClauseValues = async ({
         sources: retrieved.sources,
       });
     } catch (error) {
-      logger.error(`[DocumentGenerationService] Clause generation failed: ${error.message}`);
+      logger.error(
+        `[DocumentGenerationService] Clause generation failed: ${error.message}`,
+      );
       throw createDomainError(
         "CLAUSE_GENERATION_FAILED",
         `I could not generate ${placeholder.name} from the retrieved sources.`,
-        502
+        502,
       );
     }
 
@@ -821,21 +901,24 @@ const generateAiClauseValues = async ({
 };
 
 export function renderTemplate(contentTemplate, values) {
-  const rendered = contentTemplate.replace(/\{\{\s*([^{}]+?)\s*\}\}/g, (fullMatch, rawFieldName) => {
-    const fieldName = rawFieldName.trim();
+  const rendered = contentTemplate.replace(
+    /\{\{\s*([^{}]+?)\s*\}\}/g,
+    (fullMatch, rawFieldName) => {
+      const fieldName = rawFieldName.trim();
 
-    if (!hasValue(values[fieldName])) {
-      return fullMatch;
-    }
+      if (!hasValue(values[fieldName])) {
+        return fullMatch;
+      }
 
-    return escapeHtml(values[fieldName]);
-  });
+      return escapeHtml(values[fieldName]);
+    },
+  );
 
   if (/\{\{\s*[^{}]+?\s*\}\}/.test(rendered)) {
     throw createDomainError(
       "UNRESOLVED_PLACEHOLDERS",
       "Generated document still contains unresolved placeholders.",
-      400
+      400,
     );
   }
 
@@ -843,7 +926,7 @@ export function renderTemplate(contentTemplate, values) {
     throw createDomainError(
       "DOCUMENT_GENERATION_FAILED",
       "Generated document content is empty.",
-      500
+      500,
     );
   }
 
@@ -869,7 +952,10 @@ const createMissingFieldsResult = (message, missingFields) => ({
   sources: [],
 });
 
-const createErrorResult = (error, fallbackMessage = "I could not complete the document generation request.") => ({
+const createErrorResult = (
+  error,
+  fallbackMessage = "I could not complete the document generation request.",
+) => ({
   success: false,
   status: "error",
   message: error?.message || fallbackMessage,
@@ -880,7 +966,12 @@ const createErrorResult = (error, fallbackMessage = "I could not complete the do
   sources: [],
 });
 
-const normalizeConversationMessages = async ({ message, aiContext, conversationMessages, getConversationHistoryFn }) => {
+const normalizeConversationMessages = async ({
+  message,
+  aiContext,
+  conversationMessages,
+  getConversationHistoryFn,
+}) => {
   if (conversationMessages) {
     return [...conversationMessages, { role: "user", content: message }];
   }
@@ -894,23 +985,25 @@ const normalizeConversationMessages = async ({ message, aiContext, conversationM
       aiContext.conversationId,
       aiContext,
       1,
-      MAX_HISTORY_MESSAGES
+      MAX_HISTORY_MESSAGES,
     );
 
     const messages = Array.isArray(history?.messages) ? history.messages : [];
-    const hasCurrentMessage = messages.some((candidate) => (
-      candidate.role === "user" && candidate.content === message
-    ));
+    const hasCurrentMessage = messages.some(
+      (candidate) => candidate.role === "user" && candidate.content === message,
+    );
 
     return hasCurrentMessage
       ? messages
       : [...messages, { role: "user", content: message }];
   } catch (error) {
-    logger.error(`[DocumentGenerationService] Conversation history retrieval failed: ${error.message}`);
+    logger.error(
+      `[DocumentGenerationService] Conversation history retrieval failed: ${error.message}`,
+    );
     throw createDomainError(
       "CONVERSATION_HISTORY_UNAVAILABLE",
       "I could not retrieve the conversation context needed to continue this document.",
-      500
+      500,
     );
   }
 };
@@ -922,7 +1015,7 @@ const mapTemplateRetrievalError = (error, documentType) => {
     return createDomainError(
       "TEMPLATE_NOT_FOUND",
       `I could not find an active template for ${documentType}.`,
-      404
+      404,
     );
   }
 
@@ -930,23 +1023,25 @@ const mapTemplateRetrievalError = (error, documentType) => {
     return createDomainError(
       "TEMPLATE_SCHEMA_INVALID",
       "The active template response from the backend is invalid.",
-      502
+      502,
     );
   }
 
   return createDomainError(
     "TEMPLATE_RETRIEVAL_FAILED",
     "I could not retrieve the active document template.",
-    502
+    502,
   );
 };
 
 const createSaveError = (error) => {
-  logger.error(`[DocumentGenerationService] Document save failed: ${error.message}`);
+  logger.error(
+    `[DocumentGenerationService] Document save failed: ${error.message}`,
+  );
   return createDomainError(
     "DOCUMENT_SAVE_FAILED",
     "I generated the document content, but could not save the draft.",
-    502
+    502,
   );
 };
 
@@ -985,7 +1080,9 @@ const buildDocumentDraftResultCard = ({ saveResponse, finalValues }) => {
     type: "document_draft",
     doc_id: saveResponse.document_id,
     doc_type: saveResponse.document_type,
-    employee_name: hasValue(finalValues.employee_name) ? String(finalValues.employee_name) : undefined,
+    employee_name: hasValue(finalValues.employee_name)
+      ? String(finalValues.employee_name)
+      : undefined,
   };
 
   if (hasValue(finalValues.employee_id)) {
@@ -1008,11 +1105,13 @@ const buildDocumentDraftResultCard = ({ saveResponse, finalValues }) => {
 export async function generateDocument(input, dependencies = {}) {
   const parsed = DocumentGenerationInputSchema.safeParse(input);
   if (!parsed.success) {
-    return createErrorResult(createDomainError(
-      "DOCUMENT_REQUEST_INVALID",
-      "The document generation request is missing required context.",
-      400
-    ));
+    return createErrorResult(
+      createDomainError(
+        "DOCUMENT_REQUEST_INVALID",
+        "The document generation request is missing required context.",
+        400,
+      ),
+    );
   }
 
   const {
@@ -1038,17 +1137,19 @@ export async function generateDocument(input, dependencies = {}) {
     const documentTypeResolution = resolveDocumentTypeFromMessages(messages);
 
     if (documentTypeResolution.unsupported) {
-      return createErrorResult(createDomainError(
-        "UNSUPPORTED_DOCUMENT_TYPE",
-        `I can only generate ${SUPPORTED_DOCUMENT_TYPES.map((type) => type.label).join(", ")} drafts right now.`,
-        400
-      ));
+      return createErrorResult(
+        createDomainError(
+          "UNSUPPORTED_DOCUMENT_TYPE",
+          `I can only generate ${SUPPORTED_DOCUMENT_TYPES.map((type) => type.label).join(", ")} drafts right now.`,
+          400,
+        ),
+      );
     }
 
     if (documentTypeResolution.missing) {
       return createMissingFieldsResult(
         "I can generate a document draft, but I need the document type first.",
-        [missingFieldFor("document_type")]
+        [missingFieldFor("document_type")],
       );
     }
 
@@ -1062,25 +1163,61 @@ export async function generateDocument(input, dependencies = {}) {
     }
 
     if (template.document_type !== documentType) {
-      return createErrorResult(createDomainError(
-        "TEMPLATE_DOCUMENT_TYPE_MISMATCH",
-        "The active template does not match the requested document type.",
-        502
-      ));
+      return createErrorResult(
+        createDomainError(
+          "TEMPLATE_DOCUMENT_TYPE_MISMATCH",
+          "The active template does not match the requested document type.",
+          502,
+        ),
+      );
     }
 
-    const placeholderSpecs = parseTemplatePlaceholders(template.content_template);
+    const placeholderSpecs = parseTemplatePlaceholders(
+      template.content_template,
+    );
     const inputPlaceholders = placeholderSpecs
       .filter((placeholder) => placeholder.kind === "input")
       .map((placeholder) => placeholder.name);
-    const aiGeneratedPlaceholders = placeholderSpecs.filter((placeholder) => (
-      placeholder.kind === "ai_generated"
-    ));
-    const placeholders = placeholderSpecs.map((placeholder) => placeholder.name);
+    const aiGeneratedPlaceholders = placeholderSpecs.filter(
+      (placeholder) => placeholder.kind === "ai_generated",
+    );
+    const placeholders = placeholderSpecs.map(
+      (placeholder) => placeholder.name,
+    );
     const requiredFields = requiredFieldsForTemplate(inputPlaceholders);
 
-    const collectedUserValues = collectValuesFromMessages(messages, requiredFields, { baseDate });
-    const userValues = selectUserSuppliedFields(collectedUserValues, requiredFields);
+    logger.info(
+      `[DocumentGeneration] conversationId=${aiContext.conversationId || "none"}`,
+    );
+    logger.info(
+      `[DocumentGeneration] requiredFields=${JSON.stringify(requiredFields)}`,
+    );
+
+    const collectedUserValues = collectValuesFromMessages(
+      messages,
+      requiredFields,
+      { baseDate },
+    );
+    const userValues = selectUserSuppliedFields(
+      collectedUserValues,
+      requiredFields,
+    );
+    logger.info(
+      `[DocumentGeneration] previouslyCollectedFields=${JSON.stringify(Object.keys(userValues))}`,
+    );
+
+    const rawFieldValues =
+      aiContext.field_values && typeof aiContext.field_values === "object"
+        ? aiContext.field_values
+        : {};
+    const structuredFieldValues = selectUserSuppliedFields(
+      rawFieldValues,
+      requiredFields,
+    );
+    logger.info(
+      `[DocumentGeneration] newlyExtractedFieldValues=${JSON.stringify(Object.keys(structuredFieldValues))}`,
+    );
+
     const company = await getCompanyContextAndValues({
       requiredFields,
       aiGeneratedPlaceholders,
@@ -1091,13 +1228,20 @@ export async function generateDocument(input, dependencies = {}) {
     const values = {
       ...company.values,
       ...userValues,
+      ...structuredFieldValues,
     };
+    logger.info(
+      `[DocumentGeneration] mergedFields=${JSON.stringify(Object.keys(values))}`,
+    );
 
     const missingFields = buildMissingFields(requiredFields, values);
+    logger.info(
+      `[DocumentGeneration] missingFields=${JSON.stringify(missingFields.map((field) => field.field_name))}`,
+    );
     if (missingFields.length > 0) {
       return createMissingFieldsResult(
         "I can create that draft, but I need a few required fields first.",
-        missingFields
+        missingFields,
       );
     }
 
@@ -1115,21 +1259,27 @@ export async function generateDocument(input, dependencies = {}) {
       ...values,
       ...clauseGeneration.values,
     };
+    logger.info(
+      `[DocumentGeneration] finalGenerationPayloadFields=${JSON.stringify(Object.keys(finalValues))}`,
+    );
 
     const contentHtml = renderTemplate(template.content_template, finalValues);
     const title = buildDocumentTitle(documentType, finalValues);
 
     let saveResponse;
     try {
-      saveResponse = await saveDocumentFn(aiContext, buildDocumentSavePayload({
-        template,
-        title,
-        contentHtml,
-        finalValues,
-        placeholders,
-        placeholderSpecs,
-        generatedClauses: clauseGeneration.generatedClauses,
-      }));
+      saveResponse = await saveDocumentFn(
+        aiContext,
+        buildDocumentSavePayload({
+          template,
+          title,
+          contentHtml,
+          finalValues,
+          placeholders,
+          placeholderSpecs,
+          generatedClauses: clauseGeneration.generatedClauses,
+        }),
+      );
     } catch (error) {
       return createErrorResult(createSaveError(error));
     }
