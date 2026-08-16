@@ -4,6 +4,7 @@ import { validateRequest } from "../middleware/validate-request.js";
 import { requireInternalAuth } from "../middleware/internal-auth.middleware.js";
 import { postChat } from "../controllers/ai-chat.controller.js";
 import { getHistory, getConversations, deleteConversation } from "../controllers/ai-history.controller.js";
+import { postTemplateClauses } from "../controllers/template-clauses.controller.js";
 
 const router = Router();
 
@@ -81,4 +82,25 @@ router.delete(
   deleteConversation
 );
 
+const templateClausesRequestSchema = z.object({
+  templateId: z.string().trim().min(1, "templateId is required"),
+  documentType: z.string().trim().min(1, "documentType is required"),
+  templateName: z.string().trim().optional(),
+  companyId: z.string().trim().min(1, "companyId is required"),
+  language: z.enum(["en", "ar"]).default("en"),
+  includeLaborLaw: z.boolean().default(true),
+  includeCompanyPolicy: z.boolean().default(true),
+  instruction: z.string().trim().max(1000).optional(),
+}).refine(
+  (body) => body.includeLaborLaw || body.includeCompanyPolicy,
+  { message: "At least one knowledge source must be enabled." },
+);
+
+router.post(
+  "/template-clauses",
+  validateRequest({ body: templateClausesRequestSchema }),
+  postTemplateClauses
+);
+
 export default router;
+
