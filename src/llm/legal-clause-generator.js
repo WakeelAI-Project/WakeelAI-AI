@@ -1,25 +1,30 @@
 import { z } from "zod";
-import { ITILanguageModel } from "./iti-adapter.js";
+import { createLLM } from "./llm-provider.js";
 import { config, llmConfig } from "../config/env.js";
 
-export const LegalClauseGenerationOutputSchema = z.object({
-  support: z.enum(["supported", "insufficient_source_support"]),
-  clause: z.string(),
-  source_ids: z.array(z.string()),
-}).strict();
+export const LegalClauseGenerationOutputSchema = z
+  .object({
+    support: z.enum(["supported", "insufficient_source_support"]),
+    clause: z.string(),
+    source_ids: z.array(z.string()),
+  })
+  .strict();
 
 let legalClauseLlm;
 
 const getLegalClauseLlm = () => {
   if (!legalClauseLlm) {
-    const llm = new ITILanguageModel({
+    const llm = createLLM({
       ...llmConfig,
       temperature: 0,
     });
 
-    legalClauseLlm = llm.withStructuredOutput(LegalClauseGenerationOutputSchema, {
-      name: "generate_rag_grounded_legal_clause",
-    });
+    legalClauseLlm = llm.withStructuredOutput(
+      LegalClauseGenerationOutputSchema,
+      {
+        name: "generate_rag_grounded_legal_clause",
+      },
+    );
   }
 
   return legalClauseLlm;
@@ -77,6 +82,8 @@ ${compactJson({
  * @returns {Promise<z.infer<typeof LegalClauseGenerationOutputSchema>>}
  */
 export async function generateLegalClause(input) {
-  const result = await getLegalClauseLlm().invoke(buildLegalClausePrompt(input));
+  const result = await getLegalClauseLlm().invoke(
+    buildLegalClausePrompt(input),
+  );
   return LegalClauseGenerationOutputSchema.parse(result);
 }

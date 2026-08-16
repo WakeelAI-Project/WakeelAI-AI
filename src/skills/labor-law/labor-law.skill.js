@@ -1,14 +1,14 @@
 import { z } from "zod";
-import { ITILanguageModel } from "../../llm/iti-adapter.js";
+import { createLLM } from "../../llm/llm-provider.js";
 import { config, llmConfig } from "../../config/env.js";
 import { logger } from "../../shared/logger.js";
 import { retrieveKnowledge } from "../../rag/retrieval/knowledge-retrieval.service.js";
 
 export const laborLawInputSchema = z.object({
-  message: z.string().describe("The user's legal question")
+  message: z.string().describe("The user's legal question"),
 });
 
-const llm = new ITILanguageModel({
+const llm = createLLM({
   ...llmConfig,
   temperature: 0,
 });
@@ -18,7 +18,8 @@ const llm = new ITILanguageModel({
  */
 const laborLawSkill = {
   name: "labor_law",
-  description: "Answers questions about Egyptian labor law using strictly retrieved legal sources.",
+  description:
+    "Answers questions about Egyptian labor law using strictly retrieved legal sources.",
   inputSchema: laborLawInputSchema,
 
   /**
@@ -28,14 +29,16 @@ const laborLawSkill = {
    * @returns {Promise<import("../../contracts/index.js").SkillResult>}
    */
   async execute(message, context) {
-    logger.info(`[LaborLawSkill] Executing labor law skill for message: "${message}"`);
+    logger.info(
+      `[LaborLawSkill] Executing labor law skill for message: "${message}"`,
+    );
     try {
       logger.info(`[LaborLawSkill] Retrieving labor-law knowledge chunks`);
       const retrievalResult = await retrieveKnowledge({
         query: message,
         context: {
           knowledgeType: "labor-law",
-        }
+        },
       });
 
       const { chunks, sources } = retrievalResult;
@@ -45,17 +48,21 @@ const laborLawSkill = {
         return {
           success: true,
           data: {
-            answer: "No relevant legal support was found for this question."
+            answer: "No relevant legal support was found for this question.",
           },
           message: null,
           sources: [],
-          action: null
+          action: null,
         };
       }
 
-      logger.info(`[LaborLawSkill] Retrieved ${chunks.length} chunks. Prompting LLM.`);
+      logger.info(
+        `[LaborLawSkill] Retrieved ${chunks.length} chunks. Prompting LLM.`,
+      );
 
-      const formattedContext = chunks.map(c => `[Source: ${c.title}]\n${c.content}`).join("\n\n");
+      const formattedContext = chunks
+        .map((c) => `[Source: ${c.title}]\n${c.content}`)
+        .join("\n\n");
 
       const prompt = `You are a legal assistant for Egyptian Labor Law.
 Answer the user's question using ONLY the provided legal context below.
@@ -74,24 +81,26 @@ User Question: "${message}"`;
       return {
         success: true,
         data: {
-          answer: response.content
+          answer: response.content,
         },
         message: null,
         sources,
-        action: null
+        action: null,
       };
-
     } catch (error) {
-      logger.error(`[LaborLawSkill] Failed to execute labor law skill: ${error.message}`);
+      logger.error(
+        `[LaborLawSkill] Failed to execute labor law skill: ${error.message}`,
+      );
       return {
         success: false,
         data: null,
-        message: "An error occurred while attempting to retrieve or process labor law information.",
+        message:
+          "An error occurred while attempting to retrieve or process labor law information.",
         sources: [],
-        action: null
+        action: null,
       };
     }
-  }
+  },
 };
 
 export default laborLawSkill;

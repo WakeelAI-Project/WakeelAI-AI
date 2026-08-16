@@ -1,14 +1,14 @@
 import { z } from "zod";
-import { ITILanguageModel } from "../../llm/iti-adapter.js";
+import { createLLM } from "../../llm/llm-provider.js";
 import { config, llmConfig } from "../../config/env.js";
 import { logger } from "../../shared/logger.js";
 import { retrieveKnowledge } from "../../rag/retrieval/knowledge-retrieval.service.js";
 
 export const companyPolicyInputSchema = z.object({
-  message: z.string().describe("The user's policy question")
+  message: z.string().describe("The user's policy question"),
 });
 
-const llm = new ITILanguageModel({
+const llm = createLLM({
   ...llmConfig,
   temperature: 0,
 });
@@ -18,7 +18,8 @@ const llm = new ITILanguageModel({
  */
 const companyPolicySkill = {
   name: "company_policy",
-  description: "Answers questions about the company's internal policies and handbook using strictly retrieved sources.",
+  description:
+    "Answers questions about the company's internal policies and handbook using strictly retrieved sources.",
   inputSchema: companyPolicyInputSchema,
 
   /**
@@ -28,39 +29,51 @@ const companyPolicySkill = {
    * @returns {Promise<import("../../contracts/index.js").SkillResult>}
    */
   async execute(message, context) {
-    logger.info(`[CompanyPolicySkill] Executing company policy skill for message: "${message}"`);
+    logger.info(
+      `[CompanyPolicySkill] Executing company policy skill for message: "${message}"`,
+    );
     try {
       if (!context || !context.companyId) {
-         throw new Error("Missing companyId in context. Cannot retrieve company policy.");
+        throw new Error(
+          "Missing companyId in context. Cannot retrieve company policy.",
+        );
       }
 
-      logger.info(`[CompanyPolicySkill] Retrieving company-policy knowledge chunks for company ${context.companyId}`);
+      logger.info(
+        `[CompanyPolicySkill] Retrieving company-policy knowledge chunks for company ${context.companyId}`,
+      );
       const retrievalResult = await retrieveKnowledge({
         query: message,
         context: {
           knowledgeType: "company-policy",
-          companyId: context.companyId
-        }
+          companyId: context.companyId,
+        },
       });
 
       const { chunks, sources } = retrievalResult;
 
       if (!chunks || chunks.length === 0) {
-        logger.warn(`[CompanyPolicySkill] No relevant company-policy chunks retrieved.`);
+        logger.warn(
+          `[CompanyPolicySkill] No relevant company-policy chunks retrieved.`,
+        );
         return {
           success: true,
           data: {
-            answer: "No relevant company-specific policy was found."
+            answer: "No relevant company-specific policy was found.",
           },
           message: null,
           sources: [],
-          action: null
+          action: null,
         };
       }
 
-      logger.info(`[CompanyPolicySkill] Retrieved ${chunks.length} chunks. Prompting LLM.`);
+      logger.info(
+        `[CompanyPolicySkill] Retrieved ${chunks.length} chunks. Prompting LLM.`,
+      );
 
-      const formattedContext = chunks.map(c => `[Source: ${c.title}]\n${c.content}`).join("\n\n");
+      const formattedContext = chunks
+        .map((c) => `[Source: ${c.title}]\n${c.content}`)
+        .join("\n\n");
 
       const prompt = `You are an HR assistant for the company.
 Answer the user's question using ONLY the provided company policy context below.
@@ -80,24 +93,26 @@ User Question: "${message}"`;
       return {
         success: true,
         data: {
-          answer: response.content
+          answer: response.content,
         },
         message: null,
         sources,
-        action: null
+        action: null,
       };
-
     } catch (error) {
-      logger.error(`[CompanyPolicySkill] Failed to execute company policy skill: ${error.message}`);
+      logger.error(
+        `[CompanyPolicySkill] Failed to execute company policy skill: ${error.message}`,
+      );
       return {
         success: false,
         data: null,
-        message: "An error occurred while attempting to retrieve or process company policy information.",
+        message:
+          "An error occurred while attempting to retrieve or process company policy information.",
         sources: [],
-        action: null
+        action: null,
       };
     }
-  }
+  },
 };
 
 export default companyPolicySkill;

@@ -1,39 +1,55 @@
 import { logger } from "../shared/logger.js";
 import { config, llmConfig } from "../config/env.js";
-import { ITILanguageModel } from "../llm/iti-adapter.js";
+import { createLLM } from "../llm/llm-provider.js";
 import { z } from "zod";
 import { ChatResponseSchema } from "../contracts/index.js";
 import { createOrchestratorContext } from "./orchestrator-context.js";
-import { gatherContextBoundary, executeCapabilitiesBoundary } from "./dependency-boundaries.js";
+import {
+  gatherContextBoundary,
+  executeCapabilitiesBoundary,
+} from "./dependency-boundaries.js";
 
 // Initialize LLM for intent and final response
 // Note: We use the API keys loaded from the environment/config
-const llm = new ITILanguageModel({
+const llm = createLLM({
   ...llmConfig,
   temperature: 0,
 });
 
 // Schema for structured intent detection
 const IntentSchema = z.object({
-  intent: z.enum([
-    "calculation",
-    "document_generation",
-    "employee_question",
-    "company_question",
-    "company_policy_question",
-    "labor_law_question",
-    "create_leave_draft",
-    "submit_leave_draft",
-    "cancel_leave_draft",
-    "general_conversation"
-  ]).describe("The core intent of the user's message."),
-  requiresCapabilities: z.array(z.string()).describe("List of capability names required (e.g. 'calculation', 'create_leave_draft')."),
-  requiresContext: z.array(z.enum(["employee", "company", "rag"])).describe("Data sources required to answer accurately."),
-  arguments: z.record(z.string(), z.any()).optional().describe("Structured arguments for the required capabilities if applicable (e.g. leave_type, start_date).")
+  intent: z
+    .enum([
+      "calculation",
+      "document_generation",
+      "employee_question",
+      "company_question",
+      "company_policy_question",
+      "labor_law_question",
+      "create_leave_draft",
+      "submit_leave_draft",
+      "cancel_leave_draft",
+      "general_conversation",
+    ])
+    .describe("The core intent of the user's message."),
+  requiresCapabilities: z
+    .array(z.string())
+    .describe(
+      "List of capability names required (e.g. 'calculation', 'create_leave_draft').",
+    ),
+  requiresContext: z
+    .array(z.enum(["employee", "company", "rag"]))
+    .describe("Data sources required to answer accurately."),
+  arguments: z
+    .record(z.string(), z.any())
+    .optional()
+    .describe(
+      "Structured arguments for the required capabilities if applicable (e.g. leave_type, start_date).",
+    ),
 });
 
 const intentLlm = llm.withStructuredOutput(IntentSchema, {
-  name: "determine_intent"
+  name: "determine_intent",
 });
 
 const DOCUMENT_GENERATION_CAPABILITY = "document_generation";
@@ -77,22 +93,31 @@ export const messageRequestsCompanyContext = (message = "") => {
     return false;
   }
 
-  const mentionsCompany = /\b(company|employer|organization|organisation)\b/.test(normalized);
+  const mentionsCompany =
+    /\b(company|employer|organization|organisation)\b/.test(normalized);
   if (!mentionsCompany) {
     return false;
   }
 
-  if (/\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
-    return true;
-  }
-
-  if (/\b(all|available)\s+company\s+(information|info|details)\b/.test(normalized)) {
+  if (
+    /\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(
+      normalized,
+    )
+  ) {
     return true;
   }
 
   if (
-    /\b(company\s+policy|leave\s+policy|hr\s+policy)\b/.test(normalized)
-    && !/\b(available|exists|handbook)\b/.test(normalized)
+    /\b(all|available)\s+company\s+(information|info|details)\b/.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  if (
+    /\b(company\s+policy|leave\s+policy|hr\s+policy)\b/.test(normalized) &&
+    !/\b(available|exists|handbook)\b/.test(normalized)
   ) {
     return false;
   }
@@ -100,13 +125,17 @@ export const messageRequestsCompanyContext = (message = "") => {
   return COMPANY_CONTEXT_TERMS.some((term) => normalized.includes(term));
 };
 
-const normalizeConversationMessages = (messages = [], maxChars = MAX_HISTORY_CONTEXT_CHARS) => {
+const normalizeConversationMessages = (
+  messages = [],
+  maxChars = MAX_HISTORY_CONTEXT_CHARS,
+) => {
   const normalizedMessages = messages
-    .filter((message) => (
-      (message?.role === "user" || message?.role === "assistant") &&
-      typeof message?.content === "string" &&
-      message.content.trim()
-    ))
+    .filter(
+      (message) =>
+        (message?.role === "user" || message?.role === "assistant") &&
+        typeof message?.content === "string" &&
+        message.content.trim(),
+    )
     .map((message) => ({
       role: message.role === "assistant" ? "Assistant" : "User",
       content: message.content.trim(),
@@ -146,11 +175,12 @@ const normalizeConversationMessages = (messages = [], maxChars = MAX_HISTORY_CON
   return entries;
 };
 
-const formatConversationHistoryForDebug = (messages = []) => (
+const formatConversationHistoryForDebug = (messages = []) =>
   messages.length
-    ? messages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n\n")
-    : "No previous conversation messages."
-);
+    ? messages
+        .map((message) => `${message.role.toUpperCase()}: ${message.content}`)
+        .join("\n\n")
+    : "No previous conversation messages.";
 
 const INTENT_SYSTEM_PROMPT = `Analyze the current user message and determine their intent, required capabilities, and required context data sources.
 Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, and follow-up questions.
@@ -186,14 +216,23 @@ const buildIntentMessages = (message, conversationMessages = []) => [
     role: "system",
     content: INTENT_SYSTEM_PROMPT,
   },
-  ...normalizeConversationMessages(conversationMessages, MAX_INTENT_HISTORY_CHARS),
+  ...normalizeConversationMessages(
+    conversationMessages,
+    MAX_INTENT_HISTORY_CHARS,
+  ),
   {
     role: "user",
     content: message,
   },
 ];
 
-const buildFinalMessages = ({ message, conversationMessages = [], intent, gatheredData, capabilityResults }) => [
+const buildFinalMessages = ({
+  message,
+  conversationMessages = [],
+  intent,
+  gatheredData,
+  capabilityResults,
+}) => [
   {
     role: "system",
     content: `You are Wakeel AI, a helpful AI assistant.
@@ -219,7 +258,10 @@ ${JSON.stringify(gatheredData || {}, null, 2)}
 Capability Execution Results:
 ${JSON.stringify(capabilityResults || [], null, 2)}`,
   },
-  ...normalizeConversationMessages(conversationMessages, MAX_HISTORY_CONTEXT_CHARS),
+  ...normalizeConversationMessages(
+    conversationMessages,
+    MAX_HISTORY_CONTEXT_CHARS,
+  ),
   {
     role: "user",
     content: message,
@@ -229,7 +271,10 @@ ${JSON.stringify(capabilityResults || [], null, 2)}`,
 const normalizeIntent = (intent) => {
   const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
     ? intent.requiresCapabilities.map((capability) => {
-        if (capability === LEGACY_LEAVE_REQUEST_CAPABILITY || capability === LEGACY_LEAVE_REQUEST) {
+        if (
+          capability === LEGACY_LEAVE_REQUEST_CAPABILITY ||
+          capability === LEGACY_LEAVE_REQUEST
+        ) {
           return CREATE_LEAVE_CAPABILITY; // Default fallback for old prompts
         }
         return capability;
@@ -237,36 +282,41 @@ const normalizeIntent = (intent) => {
     : [];
 
   if (
-    intent?.intent === DOCUMENT_GENERATION_CAPABILITY
-    && !requiresCapabilities.includes(DOCUMENT_GENERATION_CAPABILITY)
+    intent?.intent === DOCUMENT_GENERATION_CAPABILITY &&
+    !requiresCapabilities.includes(DOCUMENT_GENERATION_CAPABILITY)
   ) {
     requiresCapabilities.push(DOCUMENT_GENERATION_CAPABILITY);
   }
 
   if (
-    intent?.intent === CREATE_LEAVE_CAPABILITY
-    && !requiresCapabilities.includes(CREATE_LEAVE_CAPABILITY)
+    intent?.intent === CREATE_LEAVE_CAPABILITY &&
+    !requiresCapabilities.includes(CREATE_LEAVE_CAPABILITY)
   ) {
     requiresCapabilities.push(CREATE_LEAVE_CAPABILITY);
   }
 
   if (
-    intent?.intent === SUBMIT_LEAVE_CAPABILITY
-    && !requiresCapabilities.includes(SUBMIT_LEAVE_CAPABILITY)
+    intent?.intent === SUBMIT_LEAVE_CAPABILITY &&
+    !requiresCapabilities.includes(SUBMIT_LEAVE_CAPABILITY)
   ) {
     requiresCapabilities.push(SUBMIT_LEAVE_CAPABILITY);
   }
 
   if (
-    intent?.intent === CANCEL_LEAVE_CAPABILITY
-    && !requiresCapabilities.includes(CANCEL_LEAVE_CAPABILITY)
+    intent?.intent === CANCEL_LEAVE_CAPABILITY &&
+    !requiresCapabilities.includes(CANCEL_LEAVE_CAPABILITY)
   ) {
     requiresCapabilities.push(CANCEL_LEAVE_CAPABILITY);
   }
 
-  const requiresContext = Array.isArray(intent?.requiresContext) ? intent.requiresContext : [];
+  const requiresContext = Array.isArray(intent?.requiresContext)
+    ? intent.requiresContext
+    : [];
 
-  if (intent?.intent === "company_question" && !requiresContext.includes("company")) {
+  if (
+    intent?.intent === "company_question" &&
+    !requiresContext.includes("company")
+  ) {
     requiresContext.push("company");
   }
 
@@ -285,21 +335,23 @@ export const reinforceIntentWithDeterministicContext = (message, intent) => {
   }
 
   if (
-    normalizedIntent.intent === "company_question"
-    && normalizedIntent.requiresContext.includes("company")
+    normalizedIntent.intent === "company_question" &&
+    normalizedIntent.requiresContext.includes("company")
   ) {
     return normalizedIntent;
   }
 
   logger.warn(
     `[Orchestrator] Reinforcing company_question intent for explicit company-context request. ` +
-    `Original intent=${normalizedIntent.intent || "unknown"}`
+      `Original intent=${normalizedIntent.intent || "unknown"}`,
   );
 
   return {
     ...normalizedIntent,
     intent: "company_question",
-    requiresContext: [...new Set([...(normalizedIntent.requiresContext || []), "company"])],
+    requiresContext: [
+      ...new Set([...(normalizedIntent.requiresContext || []), "company"]),
+    ],
   };
 };
 
@@ -307,7 +359,11 @@ const getRequestedCompanyFields = (message = "") => {
   const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
   const fields = [];
 
-  if (/\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(normalized)) {
+  if (
+    /\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(
+      normalized,
+    )
+  ) {
     fields.push("companyName");
   }
 
@@ -331,8 +387,20 @@ const getRequestedCompanyFields = (message = "") => {
     fields.push("email");
   }
 
-  if (/\b(all|available)\s+company\s+(information|info|details)\b/.test(normalized)) {
-    return ["companyName", "industry", "workingHours", "address", "phoneNumber", "email", "registeredAt"];
+  if (
+    /\b(all|available)\s+company\s+(information|info|details)\b/.test(
+      normalized,
+    )
+  ) {
+    return [
+      "companyName",
+      "industry",
+      "workingHours",
+      "address",
+      "phoneNumber",
+      "email",
+      "registeredAt",
+    ];
   }
 
   return [...new Set(fields)];
@@ -353,8 +421,12 @@ const buildTrustedCompanyAnswer = (message, company) => {
     return null;
   }
 
-  const requestedFields = getRequestedCompanyFields(message)
-    .filter((field) => company[field] !== null && company[field] !== undefined && company[field] !== "");
+  const requestedFields = getRequestedCompanyFields(message).filter(
+    (field) =>
+      company[field] !== null &&
+      company[field] !== undefined &&
+      company[field] !== "",
+  );
 
   if (!requestedFields.length) {
     return null;
@@ -379,7 +451,10 @@ const buildTrustedCompanyAnswer = (message, company) => {
   return `Here is the company information available to me:\n${details}`;
 };
 
-const responseContradictsTrustedCompanyContext = (responseContent = "", company) => {
+const responseContradictsTrustedCompanyContext = (
+  responseContent = "",
+  company,
+) => {
   const normalized = responseContent.toLowerCase();
 
   if (!company?.companyName) {
@@ -402,11 +477,12 @@ const responseContradictsTrustedCompanyContext = (responseContent = "", company)
 };
 
 const getDocumentGenerationSkillResult = (capabilityResults) => {
-  const result = capabilityResults.find((candidate) => (
-    candidate.capability === DOCUMENT_GENERATION_CAPABILITY
-    && candidate.status === "success"
-    && candidate.data?.data?.type === DOCUMENT_GENERATION_CAPABILITY
-  ));
+  const result = capabilityResults.find(
+    (candidate) =>
+      candidate.capability === DOCUMENT_GENERATION_CAPABILITY &&
+      candidate.status === "success" &&
+      candidate.data?.data?.type === DOCUMENT_GENERATION_CAPABILITY,
+  );
 
   return result?.data || null;
 };
@@ -415,7 +491,9 @@ const buildDocumentGenerationResponse = (conversationId, skillResult) => {
   const payload = skillResult.data || {};
   const response = {
     conversationId,
-    message: skillResult.message || "I could not complete the document generation request.",
+    message:
+      skillResult.message ||
+      "I could not complete the document generation request.",
     type: payload.result_card ? "action" : "text",
     sources: skillResult.sources || [],
     actions: skillResult.action ? [skillResult.action] : [],
@@ -433,13 +511,14 @@ const buildDocumentGenerationResponse = (conversationId, skillResult) => {
 };
 
 const getLeaveRequestToolResult = (capabilityResults) => {
-  const result = capabilityResults.find((candidate) => (
-    (candidate.capability === CREATE_LEAVE_CAPABILITY || 
-     candidate.capability === SUBMIT_LEAVE_CAPABILITY || 
-     candidate.capability === CANCEL_LEAVE_CAPABILITY)
-    && candidate.status === "success"
-    && candidate.data?.data?.type === "leave_request"
-  ));
+  const result = capabilityResults.find(
+    (candidate) =>
+      (candidate.capability === CREATE_LEAVE_CAPABILITY ||
+        candidate.capability === SUBMIT_LEAVE_CAPABILITY ||
+        candidate.capability === CANCEL_LEAVE_CAPABILITY) &&
+      candidate.status === "success" &&
+      candidate.data?.data?.type === "leave_request",
+  );
 
   return result?.data || null;
 };
@@ -467,15 +546,21 @@ const buildLeaveRequestResponse = (conversationId, toolResult) => {
 
 /**
  * Determines intent using the configured LLM.
- * 
- * @param {string} message 
+ *
+ * @param {string} message
  * @returns {Promise<Object>}
  */
 async function determineIntent(message, conversationMessages = []) {
   try {
-    logger.info(`[Orchestrator] Intent detection started for message="${message}"`);
-    const analysis = await intentLlm.invoke(buildIntentMessages(message, conversationMessages));
-    logger.info(`[Orchestrator] Raw intent result = ${JSON.stringify(analysis)}`);
+    logger.info(
+      `[Orchestrator] Intent detection started for message="${message}"`,
+    );
+    const analysis = await intentLlm.invoke(
+      buildIntentMessages(message, conversationMessages),
+    );
+    logger.info(
+      `[Orchestrator] Raw intent result = ${JSON.stringify(analysis)}`,
+    );
     return normalizeIntent(analysis);
   } catch (error) {
     logger.error(`[Orchestrator] Failed to determine intent: ${error.message}`);
@@ -483,14 +568,14 @@ async function determineIntent(message, conversationMessages = []) {
     return normalizeIntent({
       intent: "general_conversation",
       requiresCapabilities: [],
-      requiresContext: []
+      requiresContext: [],
     });
   }
 }
 
 /**
  * Handles an AI chat request.
- * 
+ *
  * @param {Object} input
  * @param {string} input.message
  * @param {string} input.conversationId
@@ -498,58 +583,92 @@ async function determineIntent(message, conversationMessages = []) {
  * @param {Array<{role: string, content: string}>} [input.conversationMessages]
  * @returns {Promise<import("../contracts/index.js").ChatResponse>}
  */
-export const handleChat = async ({ message, conversationId, context, conversationMessages = [] }) => {
-  logger.info(`[Orchestrator] Starting orchestration for conversation: ${conversationId}`);
+export const handleChat = async ({
+  message,
+  conversationId,
+  context,
+  conversationMessages = [],
+}) => {
+  logger.info(
+    `[Orchestrator] Starting orchestration for conversation: ${conversationId}`,
+  );
   logger.info(`[Orchestrator] Received message: "${message}"`);
   logger.info(
     "[Orchestrator] User context received. " +
-    `userId present=${Boolean(context?.userId)} ` +
-    `companyId present=${Boolean(context?.companyId)} ` +
-    `role present=${Boolean(context?.role)}`
+      `userId present=${Boolean(context?.userId)} ` +
+      `companyId present=${Boolean(context?.companyId)} ` +
+      `role present=${Boolean(context?.role)}`,
   );
 
   try {
     // 1. Initialize Orchestration Context
-    const orchContext = createOrchestratorContext(message, conversationId, context, conversationMessages);
+    const orchContext = createOrchestratorContext(
+      message,
+      conversationId,
+      context,
+      conversationMessages,
+    );
 
     // 2. Determine Intent & Required Capabilities
     orchContext.intent = reinforceIntentWithDeterministicContext(
       message,
-      await determineIntent(message, orchContext.conversationMessages)
-    );
-    logger.info(`[Orchestrator] Intent determined: ${orchContext.intent.intent}`);
-    logger.info(
-      `[Orchestrator] Intent result = ${JSON.stringify(orchContext.intent)}`
+      await determineIntent(message, orchContext.conversationMessages),
     );
     logger.info(
-      `[Orchestrator] requiresContext = ${JSON.stringify(orchContext.intent.requiresContext || [])}`
+      `[Orchestrator] Intent determined: ${orchContext.intent.intent}`,
+    );
+    logger.info(
+      `[Orchestrator] Intent result = ${JSON.stringify(orchContext.intent)}`,
+    );
+    logger.info(
+      `[Orchestrator] requiresContext = ${JSON.stringify(orchContext.intent.requiresContext || [])}`,
     );
 
     // 3. Gather Required Context (Knowledge, Employee, Company)
     logger.info(
       `[Orchestrator] Calling gatherContextBoundary with requiresContext=${JSON.stringify(orchContext.intent.requiresContext || [])} ` +
-      `companyId present=${Boolean(orchContext.userContext?.companyId)}`
+        `companyId present=${Boolean(orchContext.userContext?.companyId)}`,
     );
-    orchContext.gatheredData = await gatherContextBoundary(orchContext.intent.requiresContext, orchContext.userContext);
+    orchContext.gatheredData = await gatherContextBoundary(
+      orchContext.intent.requiresContext,
+      orchContext.userContext,
+    );
     logger.info(
       `[Orchestrator] gatherContextBoundary returned keys=${JSON.stringify(Object.keys(orchContext.gatheredData || {}))} ` +
-      `company context present=${Boolean(orchContext.gatheredData?.company && !orchContext.gatheredData.company.error)} ` +
-      `company name present=${Boolean(orchContext.gatheredData?.company?.companyName)}`
+        `company context present=${Boolean(orchContext.gatheredData?.company && !orchContext.gatheredData.company.error)} ` +
+        `company name present=${Boolean(orchContext.gatheredData?.company?.companyName)}`,
     );
 
     // 4. Execute Capabilities (Skills / Tools)
-    orchContext.capabilityResults = await executeCapabilitiesBoundary(orchContext.intent.requiresCapabilities, orchContext);
+    orchContext.capabilityResults = await executeCapabilitiesBoundary(
+      orchContext.intent.requiresCapabilities,
+      orchContext,
+    );
 
-    const documentGenerationResult = getDocumentGenerationSkillResult(orchContext.capabilityResults);
+    const documentGenerationResult = getDocumentGenerationSkillResult(
+      orchContext.capabilityResults,
+    );
     if (documentGenerationResult) {
-      logger.info(`[Orchestrator] Returning structured document generation response for conversation: ${conversationId}`);
-      return buildDocumentGenerationResponse(orchContext.conversationId, documentGenerationResult);
+      logger.info(
+        `[Orchestrator] Returning structured document generation response for conversation: ${conversationId}`,
+      );
+      return buildDocumentGenerationResponse(
+        orchContext.conversationId,
+        documentGenerationResult,
+      );
     }
 
-    const leaveRequestResult = getLeaveRequestToolResult(orchContext.capabilityResults);
+    const leaveRequestResult = getLeaveRequestToolResult(
+      orchContext.capabilityResults,
+    );
     if (leaveRequestResult) {
-      logger.info(`[Orchestrator] Returning structured leave request response for conversation: ${conversationId}`);
-      return buildLeaveRequestResponse(orchContext.conversationId, leaveRequestResult);
+      logger.info(
+        `[Orchestrator] Returning structured leave request response for conversation: ${conversationId}`,
+      );
+      return buildLeaveRequestResponse(
+        orchContext.conversationId,
+        leaveRequestResult,
+      );
     }
 
     // 5. Generate Final Response
@@ -560,29 +679,39 @@ export const handleChat = async ({ message, conversationId, context, conversatio
       gatheredData: orchContext.gatheredData,
       capabilityResults: orchContext.capabilityResults,
     });
-    const finalSystemPrompt = finalMessages.find((item) => item.role === "system")?.content || "";
+    const finalSystemPrompt =
+      finalMessages.find((item) => item.role === "system")?.content || "";
     logger.info(
       `[Orchestrator] Final LLM prompt company context check. ` +
-      `contains companyName=${finalSystemPrompt.includes("companyName")} ` +
-      `contains actual companyName=${Boolean(
-        orchContext.gatheredData?.company?.companyName
-        && finalSystemPrompt.includes(orchContext.gatheredData.company.companyName)
-      )}`
+        `contains companyName=${finalSystemPrompt.includes("companyName")} ` +
+        `contains actual companyName=${Boolean(
+          orchContext.gatheredData?.company?.companyName &&
+          finalSystemPrompt.includes(
+            orchContext.gatheredData.company.companyName,
+          ),
+        )}`,
     );
 
-    if (process.env.NODE_ENV === "test" || process.env.WAKEEL_DEBUG_LLM_CONTEXT === "true") {
+    if (
+      process.env.NODE_ENV === "test" ||
+      process.env.WAKEEL_DEBUG_LLM_CONTEXT === "true"
+    ) {
       logger.debug("[Orchestrator] Final LLM context summary", {
         conversationId,
         historyLength: orchContext.conversationMessages.length,
         historyRoles: orchContext.conversationMessages.map((item) => item.role),
         currentUserMessage: orchContext.message,
         historyPreview: formatConversationHistoryForDebug(
-          normalizeConversationMessages(orchContext.conversationMessages, 2000)
+          normalizeConversationMessages(orchContext.conversationMessages, 2000),
         ),
         gatheredDataKeys: Object.keys(orchContext.gatheredData || {}),
-        hasCompanyContext: Boolean(orchContext.gatheredData?.company && !orchContext.gatheredData.company.error),
+        hasCompanyContext: Boolean(
+          orchContext.gatheredData?.company &&
+          !orchContext.gatheredData.company.error,
+        ),
         hasCompanyName: Boolean(orchContext.gatheredData?.company?.companyName),
-        companyContextError: orchContext.gatheredData?.company?.error?.code || null,
+        companyContextError:
+          orchContext.gatheredData?.company?.error?.code || null,
       });
     }
 
@@ -591,26 +720,36 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     const finalResponseContent = String(finalResponse.content ?? "");
     const trustedCompanyAnswer = buildTrustedCompanyAnswer(
       orchContext.message,
-      orchContext.gatheredData?.company
+      orchContext.gatheredData?.company,
     );
-    const shouldUseTrustedCompanyAnswer = (
-      trustedCompanyAnswer
-      && (
-        responseContradictsTrustedCompanyContext(finalResponseContent, orchContext.gatheredData.company)
-        || (
-          getRequestedCompanyFields(orchContext.message).includes("companyName")
-          && orchContext.gatheredData.company?.companyName
-          && !finalResponseContent.toLowerCase().includes(orchContext.gatheredData.company.companyName.toLowerCase())
-        )
-      )
-    );
+    const shouldUseTrustedCompanyAnswer =
+      trustedCompanyAnswer &&
+      (responseContradictsTrustedCompanyContext(
+        finalResponseContent,
+        orchContext.gatheredData.company,
+      ) ||
+        (getRequestedCompanyFields(orchContext.message).includes(
+          "companyName",
+        ) &&
+          orchContext.gatheredData.company?.companyName &&
+          !finalResponseContent
+            .toLowerCase()
+            .includes(
+              orchContext.gatheredData.company.companyName.toLowerCase(),
+            )));
 
-    logger.info(`[Orchestrator] Finished orchestration for conversation: ${conversationId}`);
+    logger.info(
+      `[Orchestrator] Finished orchestration for conversation: ${conversationId}`,
+    );
 
     const allSources = [];
     if (Array.isArray(orchContext.capabilityResults)) {
       orchContext.capabilityResults.forEach((res) => {
-        if (res.status === "success" && res.data?.sources && Array.isArray(res.data.sources)) {
+        if (
+          res.status === "success" &&
+          res.data?.sources &&
+          Array.isArray(res.data.sources)
+        ) {
           allSources.push(...res.data.sources);
         }
       });
@@ -619,21 +758,25 @@ export const handleChat = async ({ message, conversationId, context, conversatio
     // Return using the shared ChatResponse shape
     return {
       conversationId: orchContext.conversationId,
-      message: shouldUseTrustedCompanyAnswer ? trustedCompanyAnswer : finalResponseContent,
+      message: shouldUseTrustedCompanyAnswer
+        ? trustedCompanyAnswer
+        : finalResponseContent,
       type: "text",
       sources: allSources,
-      actions: []  // Will be populated in Task 3.9
+      actions: [], // Will be populated in Task 3.9
     };
   } catch (error) {
-    logger.error(`[Orchestrator] Fatal error during orchestration: ${error.message}`);
-    
+    logger.error(
+      `[Orchestrator] Fatal error during orchestration: ${error.message}`,
+    );
+
     // Controlled error response without leaking internals
     return {
       conversationId,
       message: "An internal error occurred while processing your request.",
       type: "text",
       sources: [],
-      actions: []
+      actions: [],
     };
   }
 };
