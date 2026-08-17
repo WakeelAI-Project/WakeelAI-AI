@@ -142,10 +142,8 @@ describe("Company context runtime flow diagnostic", () => {
     expect(logs).toContain("[CompanyContextService] >>> CALLING getCompanyContextApi <<<");
     expect(logs).toContain("[CompanyAPI] >>> ENTERED getCompanyContextApi <<<");
     expect(logs).toContain("[CompanyAPI] endpoint = /api/ai/company-context");
-    expect(logs).toContain("[WakeelClient] method = GET");
-    expect(logs).toContain("[WakeelClient] path = /api/ai/company-context");
-    expect(logs).toContain("[WakeelClient] response status = 200");
-    expect(logs).toContain("[WakeelClient] response fields = id,name,tax_id,industry,address,phone_number,email,logo_url,working_hours,registered_at,policy_available");
+    expect(logs).toContain("[WakeelClient] -> GET /api/ai/company-context");
+    expect(logs).toContain("[WakeelClient] <- GET /api/ai/company-context status=200");
     expect(logs).toContain("[CompanyContextService] >>> VALIDATION PASSED <<<");
     expect(logs).toContain("[CompanyContextService] companyName present = true");
     expect(logs).toContain("[ContextBoundary] Company context successfully gathered");

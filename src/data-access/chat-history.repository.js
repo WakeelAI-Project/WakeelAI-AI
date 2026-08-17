@@ -4,6 +4,7 @@ import { Message } from "./message.model.js";
 /**
  * Ensures a conversation exists for the given ID and context.
  * Upserts the conversation if it doesn't exist.
+ * Owner-scoped: same conversationId can exist for different users.
  *
  * @param {Object} data
  * @param {string} data.conversationId
@@ -14,7 +15,7 @@ import { Message } from "./message.model.js";
  */
 export async function upsertConversation({ conversationId, userId, companyId, role }) {
   return await Conversation.findOneAndUpdate(
-    { conversationId },
+    { conversationId, userId, companyId },
     { $setOnInsert: { conversationId, userId, companyId, role } },
     { upsert: true, returnDocument: 'after', lean: true }
   );

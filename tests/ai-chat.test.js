@@ -1,7 +1,7 @@
 import { jest } from "@jest/globals";
 
 const mockHandleChat = jest.fn().mockResolvedValue({
-  conversationId: "conv-123",
+  conversationId: "123e4567-e89b-12d3-a456-426614174000",
   message: "Mocked AI response.",
   type: "text",
   sources: [],
@@ -52,7 +52,7 @@ describe("POST /api/ai/chat", () => {
       userId: "user-456",
       companyId: "company-789",
       role: "employee",
-      conversationId: "conv-123",
+      conversationId: "123e4567-e89b-12d3-a456-426614174000",
     },
   };
 
@@ -65,7 +65,7 @@ describe("POST /api/ai/chat", () => {
 
   it("returns 200 for a valid request with canonical context object", async () => {
     const expectedResponse = {
-      conversationId: "conv-123",
+      conversationId: "123e4567-e89b-12d3-a456-426614174000",
       message: "Mocked AI response.",
       type: "text",
       sources: [],
@@ -83,15 +83,15 @@ describe("POST /api/ai/chat", () => {
 
     expect(response.status).toBe(200);
     expect(mockEnsureConversation).toHaveBeenCalledWith(
-      "conv-123",
+      "123e4567-e89b-12d3-a456-426614174000",
       expect.objectContaining({
         userId: "user-456",
         companyId: "company-789",
-        conversationId: "conv-123",
+        conversationId: "123e4567-e89b-12d3-a456-426614174000",
       })
     );
     expect(mockGetRecentHistoryForContext).toHaveBeenCalledWith(
-      "conv-123",
+      "123e4567-e89b-12d3-a456-426614174000",
       expect.objectContaining({
         userId: "user-456",
         companyId: "company-789",
@@ -99,7 +99,7 @@ describe("POST /api/ai/chat", () => {
     );
     expect(mockHandleChat).toHaveBeenCalledWith(expect.objectContaining({
       message: validPayload.message,
-      conversationId: "conv-123",
+      conversationId: "123e4567-e89b-12d3-a456-426614174000",
       conversationMessages: mockConversationMessages,
     }));
 

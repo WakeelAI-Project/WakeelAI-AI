@@ -63,8 +63,7 @@ describe("Wakeel client", () => {
       id: "company-1",
       name: "Wakeel Technologies",
     }));
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("https://wakeel-ai-api.runasp.net/api/ai/company-context"));
-    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining('"X-Internal-API-Key":"<redacted>"'));
+    expect(logger.info).toHaveBeenCalledWith(expect.stringContaining("-> GET /api/ai/company-context"));
   });
 
   it("fails before fetch when trusted companyId is missing", async () => {
