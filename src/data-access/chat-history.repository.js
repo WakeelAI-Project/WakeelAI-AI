@@ -16,7 +16,7 @@ export async function upsertConversation({ conversationId, userId, companyId, ro
   return await Conversation.findOneAndUpdate(
     { conversationId },
     { $setOnInsert: { conversationId, userId, companyId, role } },
-    { upsert: true, new: true, lean: true }
+    { upsert: true, returnDocument: 'after', lean: true }
   );
 }
 
@@ -126,7 +126,7 @@ export async function setConversationTitleIfNotExists(conversationId, userId, co
   return await Conversation.findOneAndUpdate(
     { conversationId, userId, companyId, title: null },
     { $set: { title } },
-    { new: true, lean: true }
+    { returnDocument: 'after', lean: true }
   );
 }
 
