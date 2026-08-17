@@ -209,6 +209,92 @@ describe("POST /api/ai/template-clauses", () => {
     expect(response.body.clauses[0].title).toBe("Valid");
   });
 
+  it("9a. LLM returns a clause with unsupported placeholder -> clause is dropped", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Valid with supported placeholder",
+          content: "The employee {{employee_name}} shall work at {{company_name}}.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        },
+        {
+          title: "Invalid with unsupported placeholder",
+          content: "The contract starts on {{start_date}} at {{work_address}}.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest(validBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body.clauses).toHaveLength(1);
+    expect(response.body.clauses[0].title).toBe("Valid with supported placeholder");
+    expect(response.body.clauses[0].content).toContain("{{employee_name}}");
+  });
+
+  it("9b. LLM returns a clause with Markdown headings -> clause is dropped", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Valid plain text",
+          content: "The employee shall comply with company policies.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        },
+        {
+          title: "Invalid with Markdown",
+          content: "## Contract Terms\n\nThe employee shall work full time.\n\n### Working Hours",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest(validBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body.clauses).toHaveLength(1);
+    expect(response.body.clauses[0].title).toBe("Valid plain text");
+    expect(response.body.clauses[0].content).not.toMatch(/^#{1,6}\s+/);
+  });
+
+  it("9c. All supported placeholders are accepted in clause content", async () => {
+    const supportedPlaceholders = [
+      "employee_name", "job_title", "department", "salary",
+      "hire_date", "contract_type", "company_name", "date"
+    ];
+    
+    const content = supportedPlaceholders.map(p => `{{${p}}}`).join(" ");
+    
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "All placeholders",
+          content: content,
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest(validBody);
+
+    expect(response.status).toBe(200);
+    expect(response.body.clauses).toHaveLength(1);
+    // Verify all supported placeholders are present
+    supportedPlaceholders.forEach(placeholder => {
+      expect(response.body.clauses[0].content).toContain(`{{${placeholder}}}`);
+    });
+  });
+
   it("10. Source metadata preserved byte-for-byte from retrieval", async () => {
     invokeMock.mockResolvedValue({
       clauses: [
