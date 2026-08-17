@@ -1,14 +1,6 @@
 import { config } from "../../config/env.js";
 import { logger } from "../../shared/logger.js";
 
-const summarizeHeaders = (headers) => ({
-  "Content-Type": headers["Content-Type"],
-  "X-Internal-API-Key": headers["X-Internal-API-Key"] ? "<redacted>" : "<missing>",
-  "X-User-Id": headers["X-User-Id"] ? "<present>" : "<missing>",
-  "X-Company-Id": headers["X-Company-Id"] ? "<present>" : "<missing>",
-  "X-Role": headers["X-Role"] || "<missing>",
-});
-
 const summarizeBody = (body) => {
   if (!body || typeof body !== "object") {
     return {
@@ -73,23 +65,16 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
   }
 
   try {
-    logger.info(`[WakeelClient] baseURL = ${config.WAKEEL_API_BASE_URL}`);
-    logger.info(`[WakeelClient] method = ${method}`);
-    logger.info(`[WakeelClient] path = ${endpoint}`);
     logger.info(
-      `[WakeelClient] Request: ${method} ${url}. ` +
-      `Headers=${JSON.stringify(summarizeHeaders(headers))}`
+      `[WakeelClient] -> ${method} ${endpoint} company=${aiContext.companyId} user=${aiContext.userId}`
     );
 
     const response = await fetch(url, options);
     const { rawText, parsed } = await parseResponseBody(response);
 
     logger.info(
-      `[WakeelClient] Response: ${method} ${url} -> HTTP ${response.status}. ` +
-      `Body=${JSON.stringify(summarizeBody(parsed))}`
+      `[WakeelClient] <- ${method} ${endpoint} status=${response.status}`
     );
-    logger.info(`[WakeelClient] response status = ${response.status}`);
-    logger.info(`[WakeelClient] response fields = ${Object.keys(parsed || {}).join(",")}`);
 
     if (!response.ok) {
       logger.warn(

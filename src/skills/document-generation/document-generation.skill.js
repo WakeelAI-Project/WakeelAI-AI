@@ -21,6 +21,25 @@ const documentGenerationSkill = {
   async execute(message, context) {
     logger.info("[DocumentGenerationSkill] Executing document generation");
 
+    // Role gate: document generation is restricted to HR_Manager only
+    const HR_ROLE = "HR_Manager";
+    if (context.role !== HR_ROLE) {
+      return {
+        success: false,
+        data: {
+          type: "document_generation",
+          status: "error",
+          error: {
+            code: "FORBIDDEN_DOCUMENT_GENERATION",
+            status: 403,
+          },
+        },
+        message: "Document generation is available to HR managers only. Please contact your HR department if you need an official document.",
+        sources: [],
+        action: null,
+      };
+    }
+
     const result = await generateDocument({
       message,
       aiContext: context,

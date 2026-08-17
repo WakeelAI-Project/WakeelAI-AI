@@ -6,7 +6,7 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       required: true,
       index: true,
-      unique: true,
+      // Removed unique: true - uniqueness is now enforced by compound index
     },
     userId: {
       type: String,
@@ -33,8 +33,9 @@ const conversationSchema = new mongoose.Schema(
   }
 );
 
-// Compound index for ownership validation
-conversationSchema.index({ conversationId: 1, userId: 1, companyId: 1 });
+// Compound unique index for owner-scoped conversations
+// Same conversationId can exist for different users/companies
+conversationSchema.index({ conversationId: 1, userId: 1, companyId: 1 }, { unique: true });
 
 export const Conversation =
   mongoose.models.Conversation || mongoose.model("Conversation", conversationSchema);

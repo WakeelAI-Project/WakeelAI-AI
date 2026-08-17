@@ -32,7 +32,7 @@ const chatRequestSchema = z.object({
     userId: z.string().trim().min(1, "context.userId is required"),
     companyId: z.string().trim().min(1, "context.companyId is required"),
     role: z.string().trim().min(1, "context.role is required"),
-    conversationId: z.string().trim().min(1, "context.conversationId is required"),
+    conversationId: z.string().trim().uuid("conversationId must be a UUID"),
   }),
   language: z.string().trim().optional(),
   field_values: z.record(z.string(), z.unknown()).optional(),

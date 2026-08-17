@@ -32,6 +32,25 @@ const createLeaveDraftTool = {
   async execute(message, context, args = {}) {
     logger.info("[CreateLeaveDraftTool] Executing create leave draft capability");
 
+    // Role gate: leave tools are restricted to Employee and HR_Manager only
+    const ALLOWED_ROLES = ["Employee", "HR_Manager"];
+    if (!ALLOWED_ROLES.includes(context.role)) {
+      return {
+        success: false,
+        data: {
+          type: "leave_request",
+          status: "error",
+          error: {
+            code: "FORBIDDEN_LEAVE_ACTION",
+            status: 403,
+          },
+        },
+        message: "Leave request actions are available to employees and HR managers only.",
+        sources: [],
+        action: null,
+      };
+    }
+
     if (context.field_values && context.field_values.attachment_url) {
       args.attachment_url = context.field_values.attachment_url;
     }

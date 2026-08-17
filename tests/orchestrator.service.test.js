@@ -54,7 +54,7 @@ describe("Orchestrator Service", () => {
     context: {
       userId: "u1",
       companyId: "c1",
-      role: "employee"
+      role: "Employee"
     }
   };
 
@@ -132,14 +132,16 @@ describe("Orchestrator Service", () => {
       sources: []
     });
 
+    const hrContext = { ...baseInput.context, role: "HR_Manager" };
     const result = await handleChat({
       ...baseInput,
+      context: hrContext,
       message: "Create an employment contract for Ahmed"
     });
 
     expect(mockGenerateDocument).toHaveBeenCalledWith({
       message: "Create an employment contract for Ahmed",
-      aiContext: baseInput.context
+      aiContext: hrContext
     });
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
@@ -176,6 +178,7 @@ describe("Orchestrator Service", () => {
 
     const result = await handleChat({
       ...baseInput,
+      context: { ...baseInput.context, role: "HR_Manager" },
       message: "Create an employment contract for Ahmed"
     });
 

@@ -34,11 +34,13 @@ describe("CompanyContextService", () => {
     expect(result).toEqual({
       companyId: "company-456",
       companyName: "Example Company",
+      taxId: "123-456",
       industry: null,
       workingHours: null,
       address: null,
       phoneNumber: null,
       email: null,
+      logoUrl: null,
       registeredAt: null,
       policyAvailable: false,
     });

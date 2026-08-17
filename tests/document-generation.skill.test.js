@@ -12,7 +12,7 @@ describe("DocumentGenerationSkill", () => {
   const context = {
     userId: "hr-1",
     companyId: "company-1",
-    role: "HR",
+    role: "HR_Manager",
     conversationId: "conv-1",
   };
 
