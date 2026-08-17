@@ -1103,5 +1103,119 @@ describe("DocumentGenerationService", () => {
       expect(result.error.code).toBe("DOCUMENT_SAVE_FAILED");
       expect(result.result_card).toBeUndefined();
     });
+
+    it("REGRESSION: merges field_values from aiContext with conversation history values", async () => {
+      // This test prevents the infinite loop bug where submitted field_values
+      // weren't properly merged, causing the AI to repeatedly ask for the same fields.
+      
+      getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
+
+      const conversationMessages = [
+        {
+          role: "user",
+          content: "Create an employment contract using employee contract template",
+        },
+        {
+          role: "assistant",
+          content: "I can create that draft, but I need a few required fields first.",
+        },
+      ];
+
+      // Simulate follow-up request with field_values from the "Additional details needed" form
+      const contextWithFieldValues = {
+        ...aiContext,
+        field_values: {
+          employee_name: "Ahmed Hassan",
+          job_title: "Senior Developer",
+          salary: "25000",
+          start_date: "2026-09-01",
+          working_hours: "40 hours per week",
+        },
+      };
+
+      const result = await generateDocument(
+        {
+          message: "Continue with the provided information",
+          aiContext: contextWithFieldValues,
+          conversationMessages,
+        },
+        deps(),
+      );
+
+      // The document should be successfully generated WITHOUT asking for missing fields again
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("saved");
+      expect(result.missing_fields).toBeUndefined();
+      
+      // Verify the field_values were actually used in the saved document
+      expect(saveDocumentFn).toHaveBeenCalledWith(
+        contextWithFieldValues,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            filled_fields: expect.objectContaining({
+              employee_name: "Ahmed Hassan",
+              job_title: "Senior Developer",
+              salary: "25000",
+              start_date: "2026-09-01",
+              working_hours: "40 hours per week",
+            }),
+          }),
+        }),
+      );
+    });
+
+    it("REGRESSION: field_values take precedence over conversation history extraction", async () => {
+      // When field_values are provided (from form submission), they should override
+      // any potentially incorrect values extracted from conversation text
+      
+      getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
+
+      const conversationMessages = [
+        {
+          role: "user",
+          content: "Create contract for Mohamed with salary 15000",
+        },
+        {
+          role: "assistant",
+          content: "I need more fields.",
+        },
+      ];
+
+      const contextWithFieldValues = {
+        ...aiContext,
+        field_values: {
+          employee_name: "Ahmed Hassan", // Different from conversation text
+          job_title: "Developer",
+          salary: "25000", // Different from conversation text
+          start_date: "2026-09-01",
+          working_hours: "40 hours",
+        },
+      };
+
+      const result = await generateDocument(
+        {
+          message: "Continue",
+          aiContext: contextWithFieldValues,
+          conversationMessages,
+        },
+        deps(),
+      );
+
+      expect(result.success).toBe(true);
+      expect(result.status).toBe("saved");
+      
+      // The field_values should be used, NOT the conversation-extracted values
+      expect(saveDocumentFn).toHaveBeenCalledWith(
+        contextWithFieldValues,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            filled_fields: expect.objectContaining({
+              employee_name: "Ahmed Hassan", // from field_values, not "Mohamed"
+              salary: "25000", // from field_values, not "15000"
+            }),
+          }),
+        }),
+      );
+    });
   });
 });
