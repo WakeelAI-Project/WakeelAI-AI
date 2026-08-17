@@ -2,6 +2,7 @@ import { z } from "zod";
 import { getActiveTemplate } from "../integrations/wakeel/template-api.js";
 import { saveDocument } from "../integrations/wakeel/document-api.js";
 import { getCompanyContext } from "./company-context.service.js";
+import { getEmployeeContext } from "./employee-context.service.js";
 import { getHistory } from "./chat-history.service.js";
 import { retrieveKnowledge } from "../rag/retrieval/knowledge-retrieval.service.js";
 import { generateLegalClause } from "../llm/legal-clause-generator.js";
@@ -44,24 +45,24 @@ const LEGACY_AI_GENERATED_PLACEHOLDERS = Object.freeze({
 const MAX_GENERATED_CLAUSE_CHARACTERS = 3000;
 
 const COMPANY_FIELD_MAP = Object.freeze({
-  company_name: "name",
-  company_id: "id",
-  company_tax_id: "tax_id",
-  tax_id: "tax_id",
+  company_name: "companyName",
+  company_id: "companyId",
+  company_tax_id: "taxId",
+  tax_id: "taxId",
   industry: "industry",
   company_industry: "industry",
   address: "address",
   company_address: "address",
-  phone_number: "phone_number",
-  phone: "phone_number",
-  company_phone: "phone_number",
+  phone_number: "phoneNumber",
+  phone: "phoneNumber",
+  company_phone: "phoneNumber",
   email: "email",
   company_email: "email",
-  logo_url: "logo_url",
-  working_hours: "working_hours",
-  company_working_hours: "working_hours",
-  registered_at: "registered_at",
-  registered_date: "registered_at",
+  logo_url: "logoUrl",
+  working_hours: "workingHours",
+  company_working_hours: "workingHours",
+  registered_at: "registeredAt",
+  registered_date: "registeredAt",
 });
 
 const STRICT_COMPANY_FIELDS = Object.freeze(
@@ -498,8 +499,6 @@ const selectUserSuppliedFields = (values, requiredFields) => {
   const result = {};
 
   for (const fieldName of requiredFields) {
-    if (STRICT_COMPANY_FIELDS.has(fieldName)) continue;
-
     if (hasValue(values[fieldName])) {
       result[fieldName] = values[fieldName];
     }
@@ -570,6 +569,47 @@ const getCompanyContextAndValues = async ({
   }
 
   return { values, context: companyContext };
+};
+
+const EMPLOYEE_FIELD_MAP = Object.freeze({
+  employee_name: "full_name",
+  job_title: "job_title",
+  department: "department",
+});
+
+const isEmployeeContextField = (fieldName) =>
+  Object.hasOwn(EMPLOYEE_FIELD_MAP, fieldName);
+
+const getEmployeeContextAndValues = async ({
+  requiredFields,
+  aiContext,
+  getEmployeeContextFn,
+}) => {
+  const employeeFields = requiredFields.filter(isEmployeeContextField);
+
+  if (employeeFields.length === 0) {
+    return { values: {}, context: null };
+  }
+
+  let employeeContext;
+  try {
+    employeeContext = await getEmployeeContextFn(aiContext);
+  } catch (error) {
+    logger.warn(
+      `[DocumentGenerationService] Employee context retrieval failed (likely HR manager without profile): ${error.message}`,
+    );
+    return { values: {}, context: null };
+  }
+
+  const values = {};
+  for (const fieldName of employeeFields) {
+    const contextKey = EMPLOYEE_FIELD_MAP[fieldName];
+    if (hasValue(employeeContext?.[contextKey])) {
+      values[fieldName] = employeeContext[contextKey];
+    }
+  }
+
+  return { values, context: employeeContext };
 };
 
 const buildEmployeeContextFromValues = (values) => {
@@ -1118,6 +1158,7 @@ export async function generateDocument(input, dependencies = {}) {
     getActiveTemplateFn = getActiveTemplate,
     saveDocumentFn = saveDocument,
     getCompanyContextFn = getCompanyContext,
+    getEmployeeContextFn = getEmployeeContext,
     getConversationHistoryFn = getHistory,
     retrieveKnowledgeFn = retrieveKnowledge,
     generateLegalClauseFn = generateLegalClause,
@@ -1225,11 +1266,25 @@ export async function generateDocument(input, dependencies = {}) {
       getCompanyContextFn,
     });
 
+    const employee = await getEmployeeContextAndValues({
+      requiredFields,
+      aiContext,
+      getEmployeeContextFn,
+    });
+
     const values = {
       ...company.values,
+      ...employee.values,
       ...userValues,
       ...structuredFieldValues,
     };
+
+    // Strict company fields must always take precedence over user input
+    for (const field of STRICT_COMPANY_FIELDS) {
+      if (hasValue(company.values[field])) {
+        values[field] = company.values[field];
+      }
+    }
     logger.info(
       `[DocumentGeneration] mergedFields=${JSON.stringify(Object.keys(values))}`,
     );

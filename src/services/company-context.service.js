@@ -65,11 +65,13 @@ export const getCompanyContext = async (aiContext) => {
     const normalizedContext = {
       companyId: parsed.data.id,
       companyName: parsed.data.name,
+      taxId: parsed.data.tax_id ?? null,
       industry: parsed.data.industry ?? null,
       workingHours: parsed.data.working_hours ?? null,
       address: parsed.data.address ?? null,
       phoneNumber: parsed.data.phone_number ?? null,
       email: parsed.data.email ?? null,
+      logoUrl: parsed.data.logo_url ?? null,
       registeredAt: parsed.data.registered_at ?? null,
       policyAvailable: parsed.data.policy_available ?? false,
     };

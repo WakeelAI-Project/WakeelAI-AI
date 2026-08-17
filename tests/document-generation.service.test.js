@@ -49,16 +49,16 @@ describe("DocumentGenerationService", () => {
   };
 
   const companyContext = {
-    id: "company-1",
-    name: "Wakeel AI",
-    tax_id: "TAX-123",
+    companyId: "company-1",
+    companyName: "Wakeel AI",  // ← camelCase to match company-context.service.js
     industry: "HR Tech",
     address: "Cairo",
-    phone_number: "01000000000",
+    phoneNumber: "01000000000",  // ← camelCase
     email: "hr@wakeel.test",
-    logo_url: null,
-    working_hours: "9 to 5",
-    registered_at: "2024-01-01",
+    logoUrl: null,  // ← camelCase
+    workingHours: "9 to 5",  // ← camelCase
+    registeredAt: "2024-01-01",  // ← camelCase
+    policyAvailable: false,
   };
 
   const saveResponse = {
@@ -72,6 +72,7 @@ describe("DocumentGenerationService", () => {
   let getActiveTemplateFn;
   let saveDocumentFn;
   let getCompanyContextFn;
+  let getEmployeeContextFn;
   let retrieveKnowledgeFn;
   let getConversationHistoryFn;
   let generateLegalClauseFn;
@@ -80,6 +81,7 @@ describe("DocumentGenerationService", () => {
     getActiveTemplateFn = jest.fn().mockResolvedValue(template);
     saveDocumentFn = jest.fn().mockResolvedValue(saveResponse);
     getCompanyContextFn = jest.fn().mockResolvedValue(companyContext);
+    getEmployeeContextFn = jest.fn().mockRejectedValue(new Error("Backend error 404 from /api/ai/employee-context"));
     retrieveKnowledgeFn = jest
       .fn()
       .mockResolvedValue({ chunks: [], sources: [] });
@@ -95,6 +97,7 @@ describe("DocumentGenerationService", () => {
     getActiveTemplateFn,
     saveDocumentFn,
     getCompanyContextFn,
+    getEmployeeContextFn,
     retrieveKnowledgeFn,
     getConversationHistoryFn,
     generateLegalClauseFn,
@@ -417,7 +420,7 @@ describe("DocumentGenerationService", () => {
     });
 
     it("treats unavailable company context values as missing instead of inventing them", async () => {
-      getCompanyContextFn.mockResolvedValue({ ...companyContext, name: null });
+      getCompanyContextFn.mockResolvedValue({ ...companyContext, companyName: null });
 
       const result = await generateDocument(
         {
