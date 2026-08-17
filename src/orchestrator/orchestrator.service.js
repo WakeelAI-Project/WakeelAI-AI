@@ -4,6 +4,7 @@ import { createLLM } from "../llm/llm-provider.js";
 import { z } from "zod";
 import { ChatResponseSchema } from "../contracts/index.js";
 import { createOrchestratorContext } from "./orchestrator-context.js";
+import { enrichLeaveIntentWithDeterministicContext } from "./leave-intent.js";
 import {
   gatherContextBoundary,
   executeCapabilitiesBoundary,
@@ -613,6 +614,11 @@ export const handleChat = async ({
     orchContext.intent = reinforceIntentWithDeterministicContext(
       message,
       await determineIntent(message, orchContext.conversationMessages),
+    );
+    orchContext.intent = enrichLeaveIntentWithDeterministicContext(
+      message,
+      orchContext.intent,
+      orchContext.conversationMessages,
     );
     logger.info(
       `[Orchestrator] Intent determined: ${orchContext.intent.intent}`,

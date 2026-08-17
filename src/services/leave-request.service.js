@@ -1,9 +1,9 @@
 import { MissingFieldSchema, ResultCardSchema } from "../contracts/index.js";
 import { getEmployeeContext } from "./employee-context.service.js";
 import { createLeaveDraft, submitLeaveDraft, cancelLeaveDraft } from "../integrations/wakeel/leave-api.js";
+import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 import { logger } from "../shared/logger.js";
 
-const LEAVE_TYPES = Object.freeze(["Annual", "Sick", "Unpaid"]);
 const REQUIRED_CREATE_FIELDS = Object.freeze(["leave_type", "start_date", "end_date"]);
 
 const createDomainError = (code, message, status = 400, details = undefined) => {
@@ -115,6 +115,11 @@ const buildMissingFields = (values) => REQUIRED_CREATE_FIELDS
   .filter((fieldName) => !hasValue(values[fieldName]))
   .map(missingFieldFor);
 
+const normalizeLeaveDraftArgs = (args = {}) => ({
+  ...args,
+  leave_type: normalizeLeaveType(args.leave_type) || args.leave_type,
+});
+
 const mapBackendError = (error) => {
   const code = error?.code || error?.details?.error || "LEAVE_REQUEST_FAILED";
   const status = error?.status || 500;
@@ -172,20 +177,21 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
   const { createLeaveDraftFn = createLeaveDraft, baseDate = new Date() } = dependencies;
 
   try {
-    const missingFields = buildMissingFields(args);
+    const values = normalizeLeaveDraftArgs(args);
+    const missingFields = buildMissingFields(values);
     if (missingFields.length > 0) {
       return createMissingFieldsResult(missingFields);
     }
 
     let validation;
     try {
-      validation = validateCollectedValues(args, baseDate);
+      validation = validateCollectedValues(values, baseDate);
     } catch (error) {
       return createErrorResult(error);
     }
 
-    if (args.leave_type === "Sick") {
-      if (!hasValue(args.attachment_url)) {
+    if (values.leave_type === "Sick") {
+      if (!hasValue(values.attachment_url)) {
         const missingAttachmentField = MissingFieldSchema.parse({
           field_name: "attachment_url",
           input_type: "file",
@@ -199,18 +205,18 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
     let createResponse;
     try {
       createResponse = await createLeaveDraftFn(aiContext, {
-        leave_type: args.leave_type,
-        start_date: args.start_date,
-        end_date: args.end_date,
-        reason: hasValue(args.reason) ? args.reason : undefined,
-        attachment_url: hasValue(args.attachment_url) ? args.attachment_url : undefined,
+        leave_type: values.leave_type,
+        start_date: values.start_date,
+        end_date: values.end_date,
+        reason: hasValue(values.reason) ? values.reason : undefined,
+        attachment_url: hasValue(values.attachment_url) ? values.attachment_url : undefined,
       });
     } catch (error) {
       return createErrorResult(mapBackendError(error));
     }
 
     const resultCard = buildLeaveResultCard({
-      values: args,
+      values,
       createResponse,
       attachmentUploaded: false,
     });
@@ -218,7 +224,7 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
     return {
       success: true,
       status: "draft_created",
-      message: `I've created your ${args.leave_type.toLowerCase()} leave draft.`,
+      message: `I've created your ${values.leave_type.toLowerCase()} leave draft.`,
       sources: [],
       action: {
         type: "leave_request",

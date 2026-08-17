@@ -105,6 +105,32 @@ describe("Leave Request Tools Integration", () => {
       );
     });
 
+    it("normalizes case-insensitive leave_type values before calling the backend API", async () => {
+      mockWakeelFetch.mockResolvedValueOnce({
+        request_id: "req-create-lowercase",
+        status: "Draft",
+        days_requested: 3,
+      });
+
+      const result = await createLeaveDraftTool.execute("Create annual leave", aiContext, {
+        leave_type: "aNnUaL",
+        start_date: "2030-08-10",
+        end_date: "2030-08-12",
+      });
+
+      expect(result.success).toBe(true);
+      expect(mockWakeelFetch).toHaveBeenCalledWith(
+        "POST",
+        "/api/ai/leave-requests",
+        aiContext,
+        expect.objectContaining({
+          leave_type: "Annual",
+          start_date: "2030-08-10",
+          end_date: "2030-08-12",
+        })
+      );
+    });
+
     it("requests attachment_url missing field for sick leave if not provided", async () => {
       const args = {
         leave_type: "Sick",

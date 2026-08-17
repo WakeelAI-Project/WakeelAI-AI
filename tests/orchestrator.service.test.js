@@ -251,6 +251,88 @@ describe("Orchestrator Service", () => {
     });
   });
 
+  it("extracts natural-language leave fields before creating a draft", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "create_leave_draft",
+      requiresCapabilities: ["create_leave_draft"],
+      requiresContext: [],
+      arguments: {}
+    });
+    mockHandleCreateLeaveDraft.mockResolvedValueOnce({
+      success: true,
+      status: "missing_fields",
+      message: "Sick leave requires a medical report attachment.",
+      sources: [],
+      missing_fields: [{
+        field_name: "attachment_url",
+        input_type: "file",
+        label: "Medical Report",
+        options: []
+      }]
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "Please create a sick leave request for me from August 20th to August 22nd."
+    });
+
+    expect(mockHandleCreateLeaveDraft).toHaveBeenCalledWith(baseInput.context, {
+      leave_type: "Sick",
+      start_date: "2026-08-20",
+      end_date: "2026-08-22"
+    });
+    expect(result.missing_fields.map((field) => field.field_name)).not.toContain("leave_type");
+  });
+
+  it("continues a leave workflow when the user answers the missing leave type only", async () => {
+    mockInvoke.mockResolvedValueOnce({
+      intent: "general_conversation",
+      requiresCapabilities: [],
+      requiresContext: [],
+      arguments: {}
+    });
+    mockHandleCreateLeaveDraft.mockResolvedValueOnce({
+      success: true,
+      status: "missing_fields",
+      message: "Sick leave requires a medical report attachment.",
+      sources: [],
+      missing_fields: [{
+        field_name: "attachment_url",
+        input_type: "file",
+        label: "Medical Report",
+        options: []
+      }]
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "sick",
+      conversationMessages: [
+        {
+          role: "user",
+          content: "Please create a leave request from August 20th to August 22nd."
+        },
+        {
+          role: "assistant",
+          content: "I can help with that leave request, but I need a few required fields first.",
+          missing_fields: [{
+            field_name: "leave_type",
+            input_type: "dropdown",
+            label: "Leave Type",
+            options: ["Annual", "Sick", "Unpaid"]
+          }]
+        }
+      ]
+    });
+
+    expect(mockHandleCreateLeaveDraft).toHaveBeenCalledWith(baseInput.context, {
+      leave_type: "Sick",
+      start_date: "2026-08-20",
+      end_date: "2026-08-22"
+    });
+    expect(result.missing_fields.map((field) => field.field_name)).not.toContain("leave_type");
+  });
+
   it("should include previous conversation turns when answering a follow-up", async () => {
     const previousAssistantAnswer = "**Annual Leave under the Egyptian Labor Law**\n\n| Item | Rule |\n| --- | --- |\n| Minimum entitlement | 21 days |";
 
