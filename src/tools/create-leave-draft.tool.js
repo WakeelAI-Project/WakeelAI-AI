@@ -1,9 +1,15 @@
 import { z } from "zod";
 import { logger } from "../shared/logger.js";
+import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 import { handleCreateLeaveDraft } from "../services/leave-request.service.js";
 
+const LeaveTypeInputSchema = z.preprocess(
+  (value) => normalizeLeaveType(value) || value,
+  z.enum(LEAVE_TYPES).optional(),
+);
+
 export const createLeaveDraftInputSchema = z.object({
-  leave_type: z.enum(["Annual", "Sick", "Unpaid"]).optional().describe("The type of leave requested."),
+  leave_type: LeaveTypeInputSchema.describe("The type of leave requested."),
   start_date: z.string().optional().describe("The start date of the leave in YYYY-MM-DD format."),
   end_date: z.string().optional().describe("The end date of the leave in YYYY-MM-DD format."),
   reason: z.string().optional().describe("The reason for the leave."),

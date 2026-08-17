@@ -161,11 +161,15 @@ describe("ChatHistoryService", () => {
         {
           role: "user",
           content: "Question",
+          missing_fields: [],
+          result_card: null,
           createdAt: new Date("2030-01-01T00:00:00Z"),
         },
         {
           role: "assistant",
           content: "Answer",
+          missing_fields: [],
+          result_card: null,
           createdAt: new Date("2030-01-01T00:00:01Z"),
         },
       ]);
@@ -182,11 +186,15 @@ describe("ChatHistoryService", () => {
         {
           role: "user",
           content: "Question",
+          missing_fields: [],
+          result_card: null,
           createdAt: new Date("2030-01-01T00:00:00Z"),
         },
         {
           role: "assistant",
           content: "Answer",
+          missing_fields: [],
+          result_card: null,
           createdAt: new Date("2030-01-01T00:00:01Z"),
         },
       ]);

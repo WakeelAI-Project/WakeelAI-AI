@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { wakeelFetch } from "./wakeel-client.js";
+import { LEAVE_TYPES, normalizeLeaveType } from "../../domain/leave-types.js";
 
 /**
  * Internal M2M leave API — API v8 canonical contract.
@@ -17,7 +18,10 @@ import { wakeelFetch } from "./wakeel-client.js";
  */
 
 const LeaveCreateRequestSchema = z.object({
-  leave_type: z.enum(["Annual", "Sick", "Unpaid"]),
+  leave_type: z.preprocess(
+    (value) => normalizeLeaveType(value) || value,
+    z.enum(LEAVE_TYPES),
+  ),
   start_date: z.string().trim().min(1, "start_date is required"),
   end_date: z.string().trim().min(1, "end_date is required"),
   reason: z.string().trim().max(500).optional(),
