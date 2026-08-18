@@ -13,10 +13,10 @@ import { Message } from "./message.model.js";
  * @param {string} data.role
  * @returns {Promise<Object>}
  */
-export async function upsertConversation({ conversationId, userId, companyId, role }) {
+export async function upsertConversation({ conversationId, userId, companyId, role, targetEmployeeId, targetEmployeeName }) {
   return await Conversation.findOneAndUpdate(
     { conversationId, userId, companyId },
-    { $setOnInsert: { conversationId, userId, companyId, role } },
+    { $setOnInsert: { conversationId, userId, companyId, role, targetEmployeeId, targetEmployeeName } },
     { upsert: true, returnDocument: 'after', lean: true }
   );
 }

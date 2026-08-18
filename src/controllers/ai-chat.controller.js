@@ -56,12 +56,18 @@ export const postChat = async (req, res, next) => {
       });
     }
 
-    // Canonical context: identity from trusted headers + conversationId from body.context
+    // Canonical context: identity from trusted headers + conversationId from body.context.
+    // targetEmployeeId may only be established by HR_Manager.
+    // Only extract it here for potential NEW conversation creation — existing conversations
+    // will have their persisted value restored (and override this) below.
+    const isHrManager = trustedHeaders.role === 'HR_Manager';
     const fullContext = {
       userId: trustedHeaders.userId,
       companyId: trustedHeaders.companyId,
       role: trustedHeaders.role,
       conversationId: context.conversationId,
+      targetEmployeeId: isHrManager ? (field_values?.targetEmployeeId ?? null) : null,
+      targetEmployeeName: isHrManager ? (field_values?.targetEmployeeName ?? null) : null,
       // Forward optional fields if provided (forward-compat for when .NET proxies them)
       ...(language !== undefined && { language }),
       ...(field_values !== undefined && { field_values }),
@@ -76,7 +82,13 @@ export const postChat = async (req, res, next) => {
     const conversationId = context.conversationId;
 
     // 1. Ensure the conversation is new or belongs to the trusted user/company scope.
-    await chatHistoryService.ensureConversation(conversationId, fullContext);
+    const conversation = await chatHistoryService.ensureConversation(conversationId, fullContext);
+
+    // The persisted conversation is the authoritative source for target employee scope.
+    // Always overwrite from the DB value (even if null) to prevent client-side retargeting
+    // of an existing conversation and to restore context for subsequent turns.
+    fullContext.targetEmployeeId = conversation.targetEmployeeId ?? null;
+    fullContext.targetEmployeeName = conversation.targetEmployeeName ?? null;
 
     // 2. Load previous scoped turns before orchestration so follow-ups like
     // "summarize it" can refer to the assistant's prior answer.

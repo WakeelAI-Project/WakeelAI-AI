@@ -27,13 +27,15 @@ function isConversationInContext(conversation, context) {
  * @returns {Promise<Object>}
  */
 export async function ensureConversation(conversationId, context) {
-  const { userId, companyId, role } = context;
+  const { userId, companyId, role, targetEmployeeId, targetEmployeeName } = context;
 
   const conversation = await repository.upsertConversation({
     conversationId,
     userId,
     companyId,
     role,
+    targetEmployeeId,
+    targetEmployeeName,
   });
 
   if (!isConversationInContext(conversation, context)) {
@@ -246,6 +248,8 @@ export async function getUserConversations(context, page = 1, limit = 20) {
       conversationId: conv.conversationId,
       title: title || "New conversation",
       role: conv.role,
+      targetEmployeeId: conv.targetEmployeeId,
+      targetEmployeeName: conv.targetEmployeeName,
       createdAt: conv.createdAt,
       updatedAt: conv.updatedAt,
     };
