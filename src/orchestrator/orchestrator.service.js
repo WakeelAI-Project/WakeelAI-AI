@@ -253,6 +253,15 @@ Company context rules:
 - Do not invent a company name or substitute company-policy/RAG content for company context.
 - If gatheredData.company.error exists, say the company context could not be retrieved right now and do not fabricate the value.
 
+Employee name preservation rules:
+- CRITICAL: Employee names in gatheredData.employee.full_name are identity data and must NEVER be transliterated, translated, or altered.
+- When responding in Arabic about an employee, use the EXACT name from gatheredData.employee.full_name without modification.
+- Do NOT attempt to convert Latin names like "assem" into Arabic equivalents.
+- Do NOT transliterate names like "assem" into incorrect forms like "اسيم".
+- If the name in gatheredData is "assem", write "assem" in your response, not any Arabic version.
+- Employee identity must remain unchanged regardless of response language.
+- Only translate surrounding context (job titles, actions), never the employee's name itself.
+
 Detected Intent: ${intent?.intent || "unknown"}
 
 Gathered Data Context:
