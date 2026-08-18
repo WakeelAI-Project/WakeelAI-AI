@@ -90,7 +90,7 @@ const templateClausesRequestSchema = z.object({
   language: z.enum(["en", "ar"]).default("en"),
   includeLaborLaw: z.boolean().default(true),
   includeCompanyPolicy: z.boolean().default(true),
-  instruction: z.string().trim().max(1000).optional(),
+  instruction: z.string().max(1000).nullish().transform(val => val?.trim() || undefined),
 }).refine(
   (body) => body.includeLaborLaw || body.includeCompanyPolicy,
   { message: "At least one knowledge source must be enabled." },

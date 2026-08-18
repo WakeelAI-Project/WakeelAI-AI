@@ -84,7 +84,8 @@ describe("Wakeel client", () => {
     await expect(
       wakeelFetch("GET", "/api/ai/company-context", aiContext)
     ).rejects.toMatchObject({
-      code: "BACKEND_ERROR",
+      code: "boom",  // Now uses backendError field
+      backendError: "boom",
       status: 500,
       responseSummary: {
         fields: ["error", "trace"],

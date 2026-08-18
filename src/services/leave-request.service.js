@@ -121,25 +121,40 @@ const normalizeLeaveDraftArgs = (args = {}) => ({
 });
 
 const mapBackendError = (error) => {
-  const code = error?.code || error?.details?.error || "LEAVE_REQUEST_FAILED";
+  // Extract backend error code - prioritize backendError field from WakeelClient
+  const code = error?.backendError || error?.code || error?.details?.error || "LEAVE_REQUEST_FAILED";
   const status = error?.status || 500;
+  const backendMessage = error?.backendMessage;
 
-  const messages = {
+  // Map known backend error codes to user-friendly messages
+  const errorMessages = {
+    // Validation errors (400)
     validation_error: "The leave dates or leave request details are invalid.",
-    insufficient_leave_balance: "You do not have enough leave balance for this request.",
-    attachment_required: "Sick leave requires a medical report attachment. The current chat flow cannot upload that attachment, so I cannot create the request yet.",
+    
+    // Authorization errors (403)
+    forbidden: "You are not authorized to perform this action.",
+    
+    // Not found errors (404)
     leave_request_not_found: "I could not find that leave request for your account.",
+    
+    // Business rule conflicts (409)
+    overlapping_leave_request: "You already have a leave request that overlaps with these dates.",
     not_a_draft: "That leave request has already been submitted or is no longer a draft.",
     not_pending: "That leave request is not pending HR review.",
+    
+    // Business validation errors (422)
+    insufficient_leave_balance: "You do not have enough leave balance for this request.",
+    attachment_required: "Sick leave requires a medical report attachment. The current chat flow cannot upload that attachment, so I cannot create the request yet.",
+    invalid_attachment: "The attachment URL is invalid or does not belong to your company.",
+    
+    // System/AI errors
     LEAVE_AUTH_TOKEN_UNAVAILABLE: "The AI Server cannot create leave requests end-to-end yet because the employee JWT is not available in the AI context.",
   };
 
-  return createDomainError(
-    code,
-    messages[code] || "I could not complete the leave request.",
-    status,
-    error?.details
-  );
+  // Use mapped message if available, otherwise use backend message, otherwise generic
+  const message = errorMessages[code] || backendMessage || "I could not complete the leave request.";
+
+  return createDomainError(code, message, status, error?.details);
 };
 
 const createErrorResult = (error) => ({

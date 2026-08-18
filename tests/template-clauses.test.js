@@ -327,4 +327,89 @@ describe("POST /api/ai/template-clauses", () => {
     expect(response.status).toBe(401); // Or 403 depending on implementation, InternalAuth gives 401
     expect(response.body.error.code).toBe("UNAUTHORIZED_SERVICE");
   });
+
+  it("13. Empty instruction (null) -> 200, instruction is optional", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Working Hours",
+          content: "Standard hours.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest({ ...validBody, instruction: null });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+  });
+
+  it("14. Empty string instruction -> 200, treated as undefined", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Working Hours",
+          content: "Standard hours.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest({ ...validBody, instruction: "" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+  });
+
+  it("15. Whitespace-only instruction -> 200, normalized to undefined", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Working Hours",
+          content: "Standard hours.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const response = await makeRequest({ ...validBody, instruction: "   " });
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+  });
+
+  it("16. Omitted instruction field -> 200, instruction is optional", async () => {
+    invokeMock.mockResolvedValue({
+      clauses: [
+        {
+          title: "Working Hours",
+          content: "Standard hours.",
+          category: "labor_law",
+          source_ids: ["doc-1:labor-law"],
+          support: "supported"
+        }
+      ]
+    });
+
+    const { instruction, ...bodyWithoutInstruction } = validBody;
+    const response = await makeRequest(bodyWithoutInstruction);
+
+    expect(response.status).toBe(200);
+    expect(response.body.success).toBe(true);
+  });
+
+  it("17. Instruction exceeds 1000 characters -> 400 VALIDATION_ERROR", async () => {
+    const longInstruction = "x".repeat(1001);
+    const response = await makeRequest({ ...validBody, instruction: longInstruction });
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe("VALIDATION_ERROR");
+  });
 });

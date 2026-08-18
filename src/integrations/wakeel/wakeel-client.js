@@ -77,32 +77,44 @@ export const wakeelFetch = async (method, endpoint, aiContext, body = null) => {
     );
 
     if (!response.ok) {
+      // Extract structured error from backend response if available
+      const backendError = parsed?.error || parsed?.Error;
+      const backendMessage = parsed?.message || parsed?.Message;
+      
       logger.warn(
         `[WakeelClient] Non-OK response: ${method} ${endpoint} -> HTTP ${response.status}. ` +
-        `companyId=${aiContext.companyId} userId=${aiContext.userId}`
+        `companyId=${aiContext.companyId} userId=${aiContext.userId}` +
+        (backendError ? ` error=${backendError}` : "")
       );
 
       if (response.status === 404) {
-        const error = new Error(`Resource not found at ${endpoint}`);
-        error.code = "NOT_FOUND";
+        const error = new Error(backendMessage || `Resource not found at ${endpoint}`);
+        error.code = backendError || "NOT_FOUND";
         error.status = 404;
+        error.backendError = backendError;
+        error.backendMessage = backendMessage;
         error.responseSummary = summarizeBody(parsed);
         throw error;
       }
 
       if (response.status === 401 || response.status === 403) {
-        const error = new Error(`Authentication/Authorization failed for ${endpoint}`);
-        error.code = "UNAUTHORIZED_BACKEND";
+        const error = new Error(backendMessage || `Authentication/Authorization failed for ${endpoint}`);
+        error.code = backendError || "UNAUTHORIZED_BACKEND";
         error.status = response.status;
+        error.backendError = backendError;
+        error.backendMessage = backendMessage;
         error.responseSummary = summarizeBody(parsed);
         throw error;
       }
 
-      const error = new Error(`Backend error ${response.status} from ${endpoint}`);
-      error.code = "BACKEND_ERROR";
+      // Preserve structured backend error information
+      const error = new Error(backendMessage || `Backend error ${response.status} from ${endpoint}`);
+      error.code = backendError || "BACKEND_ERROR";
       error.status = response.status;
+      error.backendError = backendError;
+      error.backendMessage = backendMessage;
       error.responseSummary = summarizeBody(parsed);
-      error.details = rawText;
+      error.details = parsed || rawText;
       throw error;
     }
 
