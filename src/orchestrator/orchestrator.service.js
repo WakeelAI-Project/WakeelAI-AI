@@ -31,6 +31,7 @@ const IntentSchema = z.object({
       "submit_leave_draft",
       "cancel_leave_draft",
       "general_conversation",
+      "out_of_scope",
     ])
     .describe("The core intent of the user's message."),
   requiresCapabilities: z
@@ -198,6 +199,7 @@ Intent values:
 - "submit_leave_draft": user wants to confirm/submit a pending leave draft
 - "cancel_leave_draft": user wants to cancel a leave request
 - "general_conversation": greetings, follow-ups, clarifications, or any other request
+- "out_of_scope": clearly unrelated requests like cooking, programming unrelated to HR, weather, general jokes.
 
 requiresContext values (include ALL that apply):
 - "employee": include when the answer requires knowing the user's profile — name, job title, department, leave balance, employment status
@@ -620,6 +622,18 @@ export const handleChat = async ({
       orchContext.intent,
       orchContext.conversationMessages,
     );
+
+    if (orchContext.intent?.intent === "out_of_scope") {
+      logger.info(`[Orchestrator] Rejecting out_of_scope request: ${conversationId}`);
+      return {
+        conversationId,
+        message: "I'm Wakeel AI, an HR and employment legal assistant. I can help with employee information, HR calculations, company policies, Egyptian labor law, leave requests, and supported HR/document workflows.",
+        type: "text",
+        sources: [],
+        actions: [],
+      };
+    }
+
     logger.info(
       `[Orchestrator] Intent determined: ${orchContext.intent.intent}`,
     );

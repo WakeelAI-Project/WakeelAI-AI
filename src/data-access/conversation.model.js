@@ -26,6 +26,14 @@ const conversationSchema = new mongoose.Schema(
       type: String,
       default: null,
     },
+    targetEmployeeId: {
+      type: String,
+      default: null,
+    },
+    targetEmployeeName: {
+      type: String,
+      default: null,
+    },
   },
   {
     collection: "conversations",
