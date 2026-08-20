@@ -141,7 +141,7 @@ export const executeCapabilitiesBoundary = async (capabilities, orchestratorCont
       logger.info(`[Orchestrator] Executing capability: ${capabilityName}`);
       // Capabilities contain their own execute function per the contract
       const args = orchestratorContext.intent?.arguments || {};
-      const result = await capability.execute(orchestratorContext.message, orchestratorContext.userContext, args);
+      const result = await capability.execute(orchestratorContext.message, orchestratorContext.userContext, args, orchestratorContext.gatheredData);
       
       results.push({
         capability: capabilityName,
