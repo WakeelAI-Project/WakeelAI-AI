@@ -4,7 +4,7 @@ import { createLeaveDraft, submitLeaveDraft, cancelLeaveDraft } from "../integra
 import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 import { logger } from "../shared/logger.js";
 
-const REQUIRED_CREATE_FIELDS = Object.freeze(["leave_type", "start_date", "end_date"]);
+const REQUIRED_CREATE_FIELDS = Object.freeze(["leave_type", "start_date", "end_date", "reason"]);
 
 const createDomainError = (code, message, status = 400, details = undefined) => {
   const error = new Error(message);
@@ -104,6 +104,12 @@ const missingFieldFor = (fieldName) => {
       field_name: "end_date",
       input_type: "date",
       label: "End Date",
+      options: [],
+    },
+    reason: {
+      field_name: "reason",
+      input_type: "text",
+      label: "Reason / description",
       options: [],
     },
   };

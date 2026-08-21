@@ -1,7 +1,7 @@
 import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 
 const CREATE_LEAVE_CAPABILITY = "create_leave_draft";
-const LEAVE_WORKFLOW_FIELDS = new Set(["leave_type", "start_date", "end_date", "attachment_url"]);
+const LEAVE_WORKFLOW_FIELDS = new Set(["leave_type", "start_date", "end_date", "attachment_url", "reason"]);
 const MONTHS = new Map([
   ["january", 0],
   ["jan", 0],
