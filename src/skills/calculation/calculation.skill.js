@@ -36,7 +36,7 @@ const calculationSkill = {
    * @param {import("../../contracts/index.js").AIContext} context - The user context.
    * @returns {Promise<import("../../contracts/index.js").SkillResult>}
    */
-  async execute(message, context) {
+  async execute(message, context, args = {}, gatheredData = {}) {
     logger.info(
       `[CalculationSkill] Executing calculation for message: "${message}"`,
     );
@@ -45,10 +45,13 @@ const calculationSkill = {
       logger.info(
         `[CalculationSkill] Parsing natural language into structured inputs`,
       );
+      const contextDataString = gatheredData ? JSON.stringify(gatheredData) : "None";
       const parsedInputs =
         await calculationParser.invoke(`Extract the mathematical operation, exactly two operands, and an optional unit from this request. 
 If it is a percentage calculation, the operation is 'percentage', the first operand is the base value, and the second operand is the percentage amount (e.g., 10% of 200 -> operands: [200, 10]).
+If the user request implicitly refers to a value from the provided Context Data (such as 'salary' or 'leave balance'), use that numeric value as one of the operands.
 
+Context Data: ${contextDataString}
 User Request: "${message}"`);
 
       // 2. Perform the deterministic calculation using the service

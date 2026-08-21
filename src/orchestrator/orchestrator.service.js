@@ -191,7 +191,7 @@ Return only the structured JSON required by the schema.
 Intent values:
 - "calculation": mathematical or numerical computation (salary, totals, leave days math)
 - "document_generation": creating a document or certificate (employment cert, salary slip, etc.)
-- "employee_question": questions about the user's own profile, job title, department, leave balance, employment status
+- "employee_question": questions about the user's own profile, job title, department, salary, leave balance, employment status
 - "company_question": questions about the company itself — name, industry, address, phone, email, working hours, registration date — anything about the company as an entity
 - "company_policy_question": questions about company HR policies, rules, procedures found in the policy handbook
 - "labor_law_question": questions about Egyptian labor law or legal regulations
@@ -202,7 +202,7 @@ Intent values:
 - "out_of_scope": clearly unrelated requests like cooking, programming unrelated to HR, weather, general jokes.
 
 requiresContext values (include ALL that apply):
-- "employee": include when the answer requires knowing the user's profile — name, job title, department, leave balance, employment status
+- "employee": include when the answer requires knowing the user's profile – name, job title, department, salary, leave balance, employment status
 - "company": include when the answer requires knowing company details — company name, industry, address, working hours, contact info, registration date, or whether a policy handbook exists. ALWAYS include "company" for "company_question" intent.
 - "rag": include when the answer requires searching the company policy documents or handbook
 
@@ -211,6 +211,7 @@ Examples:
 - "What industry does my company operate in?" → intent: "company_question", requiresContext: ["company"]
 - "What are my company's working hours?" → intent: "company_question", requiresContext: ["company"]
 - "What is my job title?" → intent: "employee_question", requiresContext: ["employee"]
+- "What is my salary?" → intent: "employee_question", requiresContext: ["employee"]
 - "How many annual leave days do I have left?" → intent: "employee_question", requiresContext: ["employee"]
 - "What is the leave policy?" → intent: "company_policy_question", requiresContext: ["rag"]`;
 
