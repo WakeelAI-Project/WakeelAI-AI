@@ -13,8 +13,9 @@ describe("DocumentGenerationService", () => {
   const aiContext = {
     userId: "hr-1",
     companyId: "company-1",
-    role: "HR",
+    role: "HR_Manager",
     conversationId: "conv-1",
+    targetEmployeeId: "emp-1",
   };
 
   const baseDate = new Date("2026-08-12T00:00:00Z");
@@ -1025,7 +1026,7 @@ describe("DocumentGenerationService", () => {
     it("handles unsupported document types before calling template retrieval", async () => {
       const result = await generateDocument(
         {
-          message: "Create a warning document for Ahmed.",
+          message: "Create an NDA document for Ahmed.",
           aiContext,
         },
         deps(),

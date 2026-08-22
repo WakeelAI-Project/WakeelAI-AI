@@ -39,7 +39,16 @@ export const SUPPORTED_DOCUMENT_TYPES = Object.freeze([
   },
 ]);
 
-const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([]);
+const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([
+  {
+    document_type: "NDA",
+    keyword: /\b(nda|non[- ]disclosure|non disclosure)\b/i,
+  },
+  {
+    document_type: "Certificate",
+    keyword: /\b(certificate|experience letter|recommendation letter)\b/i,
+  },
+]);
 
 const AI_GENERATED_PLACEHOLDER_PREFIXES = Object.freeze({
   legal_clause: Object.freeze(["labor-law"]),
@@ -350,8 +359,21 @@ const normalizeDocumentType = (value) => {
   return null;
 };
 
-export function resolveDocumentTypeFromMessages(messages) {
-  const combinedText = messages
+export function resolveDocumentTypeFromMessages(messages, aiContext = {}) {
+  // 1. Direct resolution from aiContext structured field_values or properties
+  const contextDocType =
+    aiContext?.field_values?.document_type ||
+    aiContext?.field_values?.documentType ||
+    aiContext?.document_type ||
+    aiContext?.documentType;
+
+  if (contextDocType) {
+    const explicit = normalizeDocumentType(contextDocType);
+    if (explicit) return explicit;
+  }
+
+  // 2. Text extraction from conversation messages
+  const combinedText = (messages || [])
     .map((message) => message.content || "")
     .join("\n");
   const extracted = extractFieldValuesFromMessage(combinedText, [
@@ -1197,7 +1219,7 @@ export async function generateDocument(input, dependencies = {}) {
       );
     }
 
-    const documentTypeResolution = resolveDocumentTypeFromMessages(messages);
+    const documentTypeResolution = resolveDocumentTypeFromMessages(messages, aiContext);
 
     if (documentTypeResolution.unsupported) {
       return createErrorResult(
@@ -1300,11 +1322,6 @@ export async function generateDocument(input, dependencies = {}) {
       ...userValues,
       ...structuredFieldValues,
     };
-
-    // Link the generated document to the employee HR opened "Ask AI" for.
-    if (hasValue(aiContext.targetEmployeeId)) {
-      values.employee_id = aiContext.targetEmployeeId;
-    }
 
     // Strict company fields must always take precedence over user input
     for (const field of STRICT_COMPANY_FIELDS) {

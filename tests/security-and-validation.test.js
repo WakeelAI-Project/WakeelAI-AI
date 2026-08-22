@@ -324,11 +324,10 @@ describe("Role gate — leave tools (Employee and HR_Manager only)", () => {
       }
     });
 
-    it("does NOT gate HR_Manager (passes the role check)", async () => {
+    it("gates HR_Manager (leave actions restricted to Employee)", async () => {
       const result = await createLeaveDraftTool.execute("Create leave", hrManagerContext, {});
-      if (!result.success && result.data?.error?.code) {
-        expect(result.data.error.code).not.toBe("FORBIDDEN_LEAVE_ACTION");
-      }
+      expect(result.success).toBe(false);
+      expect(result.data?.error?.code).toBe("FORBIDDEN_LEAVE_ACTION");
     });
   });
 
@@ -347,11 +346,10 @@ describe("Role gate — leave tools (Employee and HR_Manager only)", () => {
       }
     });
 
-    it("does NOT gate HR_Manager", async () => {
+    it("gates HR_Manager (leave actions restricted to Employee)", async () => {
       const result = await submitLeaveDraftTool.execute("Submit leave", hrManagerContext, {});
-      if (!result.success && result.data?.error?.code) {
-        expect(result.data.error.code).not.toBe("FORBIDDEN_LEAVE_ACTION");
-      }
+      expect(result.success).toBe(false);
+      expect(result.data?.error?.code).toBe("FORBIDDEN_LEAVE_ACTION");
     });
   });
 
@@ -370,11 +368,10 @@ describe("Role gate — leave tools (Employee and HR_Manager only)", () => {
       }
     });
 
-    it("does NOT gate HR_Manager", async () => {
+    it("gates HR_Manager (leave actions restricted to Employee)", async () => {
       const result = await cancelLeaveDraftTool.execute("Cancel leave", hrManagerContext, {});
-      if (!result.success && result.data?.error?.code) {
-        expect(result.data.error.code).not.toBe("FORBIDDEN_LEAVE_ACTION");
-      }
+      expect(result.success).toBe(false);
+      expect(result.data?.error?.code).toBe("FORBIDDEN_LEAVE_ACTION");
     });
   });
 });

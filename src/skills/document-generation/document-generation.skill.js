@@ -18,7 +18,7 @@ const documentGenerationSkill = {
    * @param {import("../../contracts/index.js").AIContext} context
    * @returns {Promise<import("../../contracts/index.js").SkillResult>}
    */
-  async execute(message, context) {
+  async execute(message, context, args = {}, gatheredData = {}) {
     logger.info("[DocumentGenerationSkill] Executing document generation");
 
     // Role gate: document generation is restricted to HR_Manager only
@@ -57,9 +57,20 @@ const documentGenerationSkill = {
       };
     }
 
+    const mergedFieldValues = {
+      ...(context?.field_values || {}),
+      ...(args || {}),
+    };
+
+    const effectiveContext = {
+      ...context,
+      field_values: mergedFieldValues,
+    };
+
     const result = await generateDocument({
       message,
-      aiContext: context,
+      aiContext: effectiveContext,
+      conversationMessages: context.conversationMessages,
     });
 
     return {

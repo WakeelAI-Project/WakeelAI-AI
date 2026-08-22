@@ -132,17 +132,21 @@ describe("Orchestrator Service", () => {
       sources: []
     });
 
-    const hrContext = { ...baseInput.context, role: "HR_Manager" };
+    const hrContext = { ...baseInput.context, role: "HR_Manager", targetEmployeeId: "emp-1" };
     const result = await handleChat({
       ...baseInput,
       context: hrContext,
       message: "Create an employment contract for Ahmed"
     });
 
-    expect(mockGenerateDocument).toHaveBeenCalledWith({
+    expect(mockGenerateDocument).toHaveBeenCalledWith(expect.objectContaining({
       message: "Create an employment contract for Ahmed",
-      aiContext: hrContext
-    });
+      aiContext: expect.objectContaining({
+        companyId: hrContext.companyId,
+        role: "HR_Manager",
+        targetEmployeeId: "emp-1"
+      })
+    }));
     expect(mockInvoke).toHaveBeenCalledTimes(1);
     expect(result).toEqual({
       conversationId: "conv-1",
@@ -178,7 +182,7 @@ describe("Orchestrator Service", () => {
 
     const result = await handleChat({
       ...baseInput,
-      context: { ...baseInput.context, role: "HR_Manager" },
+      context: { ...baseInput.context, role: "HR_Manager", targetEmployeeId: "emp-1" },
       message: "Create an employment contract for Ahmed"
     });
 
