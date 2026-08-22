@@ -14,6 +14,8 @@ import {
 import { logger } from "../shared/logger.js";
 
 const CONTRACT_DOCUMENT_TYPE = "Contract";
+const WARNING_DOCUMENT_TYPE = "Warning_Letter";
+const TERMINATION_DOCUMENT_TYPE = "Termination_Letter";
 const MAX_HISTORY_MESSAGES = 50;
 
 export const SUPPORTED_DOCUMENT_TYPES = Object.freeze([
@@ -23,12 +25,21 @@ export const SUPPORTED_DOCUMENT_TYPES = Object.freeze([
     title_prefix: "Employment Contract",
     aliases: ["contract", "employment contract", "employment_contract"],
   },
+  {
+    document_type: WARNING_DOCUMENT_TYPE,
+    label: "Warning Letter",
+    title_prefix: "Warning Letter",
+    aliases: ["warning", "warning letter", "warning_letter"],
+  },
+  {
+    document_type: TERMINATION_DOCUMENT_TYPE,
+    label: "Termination Letter",
+    title_prefix: "Termination Letter",
+    aliases: ["termination", "termination letter", "termination_letter"],
+  },
 ]);
 
-const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([
-  { keyword: /\bwarning\b/i, document_type: "Warning" },
-  { keyword: /\btermination\b/i, document_type: "Termination" },
-]);
+const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([]);
 
 const AI_GENERATED_PLACEHOLDER_PREFIXES = Object.freeze({
   legal_clause: Object.freeze(["labor-law"]),
@@ -141,6 +152,7 @@ const DocumentGenerationInputSchema = z
         companyId: z.string().trim().min(1),
         role: z.string().trim().min(1),
         conversationId: z.string().trim().min(1).optional(),
+        targetEmployeeId: z.string().trim().min(1).optional(),
       })
       .passthrough(),
     conversationMessages: z
@@ -1175,6 +1187,16 @@ export async function generateDocument(input, dependencies = {}) {
       getConversationHistoryFn,
     });
 
+    if (!hasValue(aiContext.targetEmployeeId)) {
+      return createErrorResult(
+        createDomainError(
+          "MISSING_TARGET_EMPLOYEE",
+          "To generate a document, please open 'Ask AI' directly from the specific employee's profile page.",
+          400
+        )
+      );
+    }
+
     const documentTypeResolution = resolveDocumentTypeFromMessages(messages);
 
     if (documentTypeResolution.unsupported) {
@@ -1278,6 +1300,11 @@ export async function generateDocument(input, dependencies = {}) {
       ...userValues,
       ...structuredFieldValues,
     };
+
+    // Link the generated document to the employee HR opened "Ask AI" for.
+    if (hasValue(aiContext.targetEmployeeId)) {
+      values.employee_id = aiContext.targetEmployeeId;
+    }
 
     // Strict company fields must always take precedence over user input
     for (const field of STRICT_COMPANY_FIELDS) {

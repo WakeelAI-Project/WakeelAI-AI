@@ -40,6 +40,23 @@ const documentGenerationSkill = {
       };
     }
 
+    if (!context.targetEmployeeId) {
+      return {
+        success: false,
+        data: {
+          type: "document_generation",
+          status: "error",
+          error: {
+            code: "MISSING_TARGET_EMPLOYEE",
+            status: 400,
+          },
+        },
+        message: "To generate a document, please open 'Ask AI' directly from the specific employee's profile page.",
+        sources: [],
+        action: null,
+      };
+    }
+
     const result = await generateDocument({
       message,
       aiContext: context,

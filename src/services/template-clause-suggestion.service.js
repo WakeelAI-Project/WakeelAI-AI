@@ -54,17 +54,36 @@ const createDomainError = (code, message, status = 400) => {
 // Document-type-aware retrieval query. Never generate contract clauses
 // for a warning/termination letter.
 const TOPIC_HINTS = {
+  // Employment Contract
   contract:
-    "probation period working hours annual leave sick leave salary payment termination notice period confidentiality employee obligations employer obligations",
+    "employment contract parties probation period working hours weekly rest annual leave sick leave salary payment method job duties confidentiality non-disclosure employee obligations employer obligations notice period governing law Egyptian Labor Law Law No 12 of 2003",
+
+  // Warning Letter — disciplinary only, NEVER contract terms
   warning_letter:
-    "employee misconduct disciplinary action warning penalties employee obligations violations",
+    "official written warning letter employee misconduct specific violation policy breach disciplinary action under Egyptian Labor Law prior verbal warning corrective action expected improvement consequences of repeated violation acknowledgement signature date — NOT salary, NOT probation, NOT working hours",
+
+  // Termination Letter — separation only
   termination_letter:
-    "termination of employment notice period end of service severance final settlement",
+    "termination of employment letter effective termination date reason for termination notice period per Egyptian Labor Law end of service gratuity settlement final salary settlement return of company property clearance handover Egyptian Labor Law Law No 12 of 2003 — NOT probation, NOT job duties, NOT confidentiality onboarding",
+};
+
+// Accept both the backend slug ("Warning_Letter") and free-text ("warning letter").
+const DOCUMENT_TYPE_ALIASES = {
+  contract: "contract",
+  employment_contract: "contract",
+  "employment contract": "contract",
+  warning: "warning_letter",
+  "warning letter": "warning_letter",
+  warning_letter: "warning_letter",
+  termination: "termination_letter",
+  "termination letter": "termination_letter",
+  termination_letter: "termination_letter",
 };
 
 const topicHintFor = (documentType) => {
-  const key = String(documentType || "").trim().toLowerCase();
-  return TOPIC_HINTS[key] || `${documentType} standard clauses obligations terms`;
+  const key = String(documentType || "").trim().toLowerCase().replace(/\s+/g, "_");
+  const canonical = DOCUMENT_TYPE_ALIASES[key] || DOCUMENT_TYPE_ALIASES[key.replace(/_/g, " ")] || key;
+  return TOPIC_HINTS[canonical] || `${documentType} standard clauses obligations terms`;
 };
 
 const buildRetrievalQuery = ({ documentType, instruction, language }) => {
@@ -140,9 +159,12 @@ CRITICAL OUTPUT RULES:
    - category must reflect grounding: "labor_law", "company_policy", or "mixed"
    - COMPANY CONTEXT may inform phrasing but is NOT a legal source on its own
 
-5. DOCUMENT TYPE AWARENESS
-   - Generate ONLY clauses relevant to "${documentType}"
-   - Do not generate employment-contract clauses for a warning or termination letter
+5. DOCUMENT TYPE AWARENESS (STRICT)
+   - Generate ONLY clauses that belong in a "${documentType}".
+   - A Warning_Letter contains ONLY: statement of misconduct, the specific violated policy, the disciplinary action, expected corrective behavior, and consequences of recurrence. NEVER include salary, probation, working hours, or onboarding clauses.
+   - A Termination_Letter contains ONLY: effective termination date, reason, notice period, end-of-service settlement, final salary, and property return/clearance. NEVER include job-duty or confidentiality-onboarding clauses.
+   - A Contract may contain the full employment terms.
+   - If a retrieved source is not relevant to "${documentType}", ignore it.
 
 6. QUALITY STANDARDS
    - Do not include source citations, source names, or meta-language inside clause text

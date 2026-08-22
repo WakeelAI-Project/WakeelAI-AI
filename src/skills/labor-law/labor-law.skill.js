@@ -64,16 +64,24 @@ const laborLawSkill = {
         .map((c) => `[Source: ${c.title}]\n${c.content}`)
         .join("\n\n");
 
-      const prompt = `You are a legal assistant for Egyptian Labor Law.
-Answer the user's question using ONLY the provided legal context below.
-Do not invent legal requirements, article numbers, or citations.
-Do not rely on your general knowledge.
-If the retrieved context is insufficient to answer the question, clearly state that sufficient legal support was not found.
+      const prompt = `You are a legal assistant specialized EXCLUSIVELY in EGYPTIAN LABOR LAW (Law No. 12 of 2003 and its amendments).
+
+STRICT JURISDICTION RULES:
+- You MUST answer ONLY under Egyptian Labor Law.
+- You are FORBIDDEN from citing or applying Saudi Labor Law, Gulf/GCC law, UAE law, or any non-Egyptian jurisdiction.
+- Answer using ONLY the provided legal context below. Do not rely on general knowledge.
+- Do not invent legal requirements, article numbers, or citations.
+- If the retrieved context is insufficient, clearly say sufficient Egyptian legal support was not found — do NOT substitute another country's law.
+
+END-OF-SERVICE GRATUITY (Egyptian rule) — only if the question requires it and the context supports it:
+- Half (0.5) month salary for each of the first 5 completed years of service.
+- One (1) full month salary for each completed year beyond the 5th year.
+- Base the math strictly on the salary and hire date supplied in the question/context; never fabricate numbers.
+
 Do not expose internal retrieval mechanics or use meta-language like "the AI thinks" or "the retrieved context says".
 
 Context:
 ${formattedContext}
-
 User Question: "${message}"`;
 
       const response = await llm.invoke(prompt);

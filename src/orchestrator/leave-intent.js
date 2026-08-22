@@ -58,11 +58,15 @@ const createUtcDate = (year, monthIndex, day) => {
 };
 
 export function extractLeaveType(text = "") {
-  for (const leaveType of LEAVE_TYPES) {
-    const pattern = new RegExp(`\\b${escapeRegExp(leaveType)}\\b`, "i");
-    if (pattern.test(text)) {
-      return normalizeLeaveType(leaveType);
-    }
+  const normalized = String(text).toLowerCase();
+  if (normalized.includes("sick") || normalized.includes("medical") || normalized.includes("ill")) {
+    return "Sick";
+  }
+  if (normalized.includes("unpaid") || normalized.includes("without pay")) {
+    return "Unpaid";
+  }
+  if (normalized.includes("annual") || normalized.includes("vacation") || normalized.includes("pto")) {
+    return "Annual";
   }
 
   return undefined;
@@ -200,6 +204,12 @@ export function enrichLeaveIntentWithDeterministicContext(
     ...normalizedIntent.arguments,
     ...currentArgs,
   });
+
+  // NEVER assume a leave type. If it was not explicitly detected, leave it
+  // undefined so create-leave-draft asks the user which type they want.
+  if (!hasValue(mergedArguments.leave_type)) {
+    delete mergedArguments.leave_type;
+  }
 
   const requiresCapabilities = [
     ...new Set([...(normalizedIntent.requiresCapabilities || []), CREATE_LEAVE_CAPABILITY]),
