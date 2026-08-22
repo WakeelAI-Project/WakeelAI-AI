@@ -44,7 +44,8 @@ const LeaveCreateResponseSchema = z.object({
 const LeaveSubmitResponseSchema = z.object({
   request_id: z.string().trim().min(1),
   status: z.literal("Pending"),
-}).strict();
+  days_requested: z.number().int().optional(),
+}).passthrough();
 
 const createLeaveApiError = ({ code, message, status, details }) => {
   const error = new Error(message);

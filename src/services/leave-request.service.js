@@ -4,7 +4,7 @@ import { createLeaveDraft, submitLeaveDraft, cancelLeaveDraft } from "../integra
 import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 import { logger } from "../shared/logger.js";
 
-const REQUIRED_CREATE_FIELDS = Object.freeze(["leave_type", "start_date", "end_date", "reason"]);
+const REQUIRED_CREATE_FIELDS = Object.freeze(["leave_type", "start_date", "end_date"]);
 
 const createDomainError = (code, message, status = 400, details = undefined) => {
   const error = new Error(message);
@@ -71,14 +71,6 @@ const validateCollectedValues = (values, baseDate = new Date()) => {
     );
   }
 
-  if (!hasValue(values.reason) || values.reason.trim().length < 10) {
-    throw createDomainError(
-      "LEAVE_REASON_TOO_SHORT",
-      "A detailed reason is required for all leave requests. Please provide at least 10 characters explaining your request.",
-      400
-    );
-  }
-
   if (hasValue(values.reason) && values.reason.length > 500) {
     throw createDomainError(
       "LEAVE_REASON_TOO_LONG",
@@ -129,10 +121,13 @@ const buildMissingFields = (values) => REQUIRED_CREATE_FIELDS
   .filter((fieldName) => !hasValue(values[fieldName]))
   .map(missingFieldFor);
 
-const normalizeLeaveDraftArgs = (args = {}) => ({
-  ...args,
-  leave_type: normalizeLeaveType(args.leave_type) || args.leave_type,
-});
+const normalizeLeaveDraftArgs = (args = {}) => {
+  const normalized = normalizeLeaveType(args.leave_type);
+  return {
+    ...args,
+    leave_type: normalized || args.leave_type,
+  };
+};
 
 const mapBackendError = (error) => {
   // Extract backend error code - prioritize backendError field from WakeelClient
@@ -207,6 +202,15 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
 
   try {
     const values = normalizeLeaveDraftArgs(args);
+
+    if (hasValue(values.leave_type) && !LEAVE_TYPES.includes(values.leave_type)) {
+      return createErrorResult(createDomainError(
+        "LEAVE_TYPE_INVALID",
+        "The leave type must be Annual, Sick, or Unpaid.",
+        400
+      ));
+    }
+
     const missingFields = buildMissingFields(values);
     if (missingFields.length > 0) {
       return createMissingFieldsResult(missingFields);

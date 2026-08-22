@@ -78,13 +78,8 @@ function inferYear(monthIndex, day, baseDate) {
 
   if (!candidate) return currentYear;
 
-  const baseDay = createUtcDate(
-    baseDate.getUTCFullYear(),
-    baseDate.getUTCMonth(),
-    baseDate.getUTCDate(),
-  );
-
-  return baseDay && candidate < baseDay ? currentYear + 1 : currentYear;
+  const currentMonth = baseDate.getUTCMonth();
+  return monthIndex < currentMonth ? currentYear + 1 : currentYear;
 }
 
 export function extractLeaveDates(text = "", baseDate = new Date()) {

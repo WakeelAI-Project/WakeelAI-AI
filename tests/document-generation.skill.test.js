@@ -14,6 +14,7 @@ describe("DocumentGenerationSkill", () => {
     companyId: "company-1",
     role: "HR_Manager",
     conversationId: "conv-1",
+    targetEmployeeId: "emp-1",
   };
 
   beforeEach(() => {
@@ -51,10 +52,14 @@ describe("DocumentGenerationSkill", () => {
 
     const result = await documentGenerationSkill.execute("Create an employment contract", context);
 
-    expect(mockGenerateDocument).toHaveBeenCalledWith({
+    expect(mockGenerateDocument).toHaveBeenCalledWith(expect.objectContaining({
       message: "Create an employment contract",
-      aiContext: context,
-    });
+      aiContext: expect.objectContaining({
+        companyId: "company-1",
+        role: "HR_Manager",
+        targetEmployeeId: "emp-1",
+      }),
+    }));
     expect(result.success).toBe(true);
     expect(result.message).toContain("Employment Contract");
     expect(result.sources).toEqual([]);
