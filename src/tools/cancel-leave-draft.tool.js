@@ -22,8 +22,8 @@ const cancelLeaveDraftTool = {
   async execute(message, context, args = {}) {
     logger.info("[CancelLeaveDraftTool] Executing cancel leave draft capability");
 
-    // Role gate: leave tools are restricted to Employee and HR_Manager only
-    const ALLOWED_ROLES = ["Employee", "HR_Manager"];
+    // Role gate: leave tools are restricted to Employee only
+    const ALLOWED_ROLES = ["Employee"];
     if (!ALLOWED_ROLES.includes(context.role)) {
       return {
         success: false,
@@ -35,7 +35,8 @@ const cancelLeaveDraftTool = {
             status: 403,
           },
         },
-        message: "Leave request actions are available to employees and HR managers only.",
+        message:
+          "Leave requests can only be created and managed by employees for themselves. As an HR Manager you can review and approve requests, but you cannot submit a leave request through the assistant.",
         sources: [],
         action: null,
       };

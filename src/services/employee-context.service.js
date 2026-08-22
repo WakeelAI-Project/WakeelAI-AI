@@ -10,6 +10,7 @@ const EmployeeContextSchema = z.object({
   job_title: z.string().optional().nullable(),
   employment_status: z.string().optional().nullable(),
   salary: z.number().optional().nullable(),
+  hire_date: z.string().optional().nullable(),
   leave_balance: z.object({
     annual: z.object({
       total_days: z.number().default(0),

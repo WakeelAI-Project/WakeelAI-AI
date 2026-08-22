@@ -71,6 +71,14 @@ const validateCollectedValues = (values, baseDate = new Date()) => {
     );
   }
 
+  if (!hasValue(values.reason) || values.reason.trim().length < 10) {
+    throw createDomainError(
+      "LEAVE_REASON_TOO_SHORT",
+      "A detailed reason is required for all leave requests. Please provide at least 10 characters explaining your request.",
+      400
+    );
+  }
+
   if (hasValue(values.reason) && values.reason.length > 500) {
     throw createDomainError(
       "LEAVE_REASON_TOO_LONG",
