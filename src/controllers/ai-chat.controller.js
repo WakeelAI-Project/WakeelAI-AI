@@ -87,8 +87,8 @@ export const postChat = async (req, res, next) => {
     // The persisted conversation is the authoritative source for target employee scope.
     // Always overwrite from the DB value (even if null) to prevent client-side retargeting
     // of an existing conversation and to restore context for subsequent turns.
-    fullContext.targetEmployeeId = conversation.targetEmployeeId ?? null;
-    fullContext.targetEmployeeName = conversation.targetEmployeeName ?? null;
+    fullContext.targetEmployeeId = conversation?.targetEmployeeId ?? null;
+    fullContext.targetEmployeeName = conversation?.targetEmployeeName ?? null;
 
     // 2. Load previous scoped turns before orchestration so follow-ups like
     // "summarize it" can refer to the assistant's prior answer.
@@ -106,7 +106,14 @@ export const postChat = async (req, res, next) => {
     });
 
     // 4. Persist the current user message and assistant response.
-    await chatHistoryService.persistUserMessage(conversationId, fullContext, message);
+    let persistedMessage = message;
+    if (field_values && Object.keys(field_values).length > 0) {
+      const formattedFields = Object.entries(field_values)
+          .map(([key, val]) => `${key}: ${val}`)
+          .join('\n');
+      persistedMessage = `${message}\n\n[Provided Data]\n${formattedFields}`;
+    }
+    await chatHistoryService.persistUserMessage(conversationId, fullContext, persistedMessage);
     await chatHistoryService.persistAssistantMessage(conversationId, fullContext, result);
 
     return res.status(200).json(result);

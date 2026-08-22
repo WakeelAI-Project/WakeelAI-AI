@@ -51,10 +51,6 @@ const createLeaveDraftTool = {
       };
     }
 
-    if (context.field_values && context.field_values.attachment_url) {
-      args.attachment_url = context.field_values.attachment_url;
-    }
-
     const result = await handleCreateLeaveDraft(context, args);
 
     return {

@@ -155,6 +155,7 @@ describe("Leave Request Tools Integration", () => {
         leave_type: "Sick",
         start_date: "2030-08-10",
         end_date: "2030-08-12",
+        attachment_url: "https://storage.example.com/medical_report.pdf"
       };
 
       const contextWithFieldValues = {
