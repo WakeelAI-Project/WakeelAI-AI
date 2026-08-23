@@ -646,7 +646,7 @@ const getEmployeeContextAndValues = async ({
   return { values, context: employeeContext };
 };
 
-const buildEmployeeContextFromValues = (values) => {
+const buildEmployeeContextFromValues = (values, targetEmployeeId) => {
   const context = {
     employee_name: values.employee_name,
     job_title: values.job_title,
@@ -655,8 +655,9 @@ const buildEmployeeContextFromValues = (values) => {
     working_hours: values.working_hours,
   };
 
-  if (hasValue(values.employee_id)) {
-    context.employee_id = values.employee_id;
+  const employeeId = targetEmployeeId || values.employee_id;
+  if (hasValue(employeeId)) {
+    context.employee_id = employeeId;
   }
 
   return context;
@@ -908,7 +909,7 @@ const generateAiClauseValues = async ({
   const clauseValues = {};
   const sources = [];
   const generatedClauses = [];
-  const employeeContext = buildEmployeeContextFromValues(values);
+  const employeeContext = buildEmployeeContextFromValues(values, aiContext?.targetEmployeeId);
 
   for (const placeholder of aiGeneratedPlaceholders) {
     const retrieved = await retrieveClauseKnowledge({
@@ -1127,6 +1128,7 @@ const buildDocumentSavePayload = ({
   placeholders,
   placeholderSpecs,
   generatedClauses,
+  targetEmployeeId,
 }) => {
   const payload = {
     document_type: template.document_type,
@@ -1142,14 +1144,15 @@ const buildDocumentSavePayload = ({
     },
   };
 
-  if (hasValue(finalValues.employee_id)) {
-    payload.employee_id = String(finalValues.employee_id);
+  const employeeId = targetEmployeeId || finalValues.employee_id;
+  if (hasValue(employeeId)) {
+    payload.employee_id = String(employeeId);
   }
 
   return payload;
 };
 
-const buildDocumentDraftResultCard = ({ saveResponse, finalValues }) => {
+const buildDocumentDraftResultCard = ({ saveResponse, finalValues, targetEmployeeId }) => {
   const resultCard = {
     type: "document_draft",
     doc_id: saveResponse.document_id,
@@ -1159,8 +1162,9 @@ const buildDocumentDraftResultCard = ({ saveResponse, finalValues }) => {
       : undefined,
   };
 
-  if (hasValue(finalValues.employee_id)) {
-    resultCard.employee_id = String(finalValues.employee_id);
+  const employeeId = targetEmployeeId || finalValues.employee_id;
+  if (hasValue(employeeId)) {
+    resultCard.employee_id = String(employeeId);
   }
 
   return ResultCardSchema.parse(resultCard);
@@ -1317,11 +1321,16 @@ export async function generateDocument(input, dependencies = {}) {
     });
 
     const values = {
+      ...(hasValue(aiContext.targetEmployeeId) ? { employee_id: aiContext.targetEmployeeId } : {}),
       ...company.values,
       ...employee.values,
       ...userValues,
       ...structuredFieldValues,
     };
+
+    if (hasValue(aiContext.targetEmployeeId)) {
+      values.employee_id = aiContext.targetEmployeeId;
+    }
 
     // Strict company fields must always take precedence over user input
     for (const field of STRICT_COMPANY_FIELDS) {
@@ -1377,6 +1386,7 @@ export async function generateDocument(input, dependencies = {}) {
           placeholders,
           placeholderSpecs,
           generatedClauses: clauseGeneration.generatedClauses,
+          targetEmployeeId: aiContext.targetEmployeeId,
         }),
       );
     } catch (error) {
@@ -1386,6 +1396,7 @@ export async function generateDocument(input, dependencies = {}) {
     const resultCard = buildDocumentDraftResultCard({
       saveResponse,
       finalValues,
+      targetEmployeeId: aiContext.targetEmployeeId,
     });
 
     return {

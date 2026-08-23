@@ -165,6 +165,8 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
 
   return {
     conversationId,
+    targetEmployeeId: conversation.targetEmployeeId || null,
+    targetEmployeeName: conversation.targetEmployeeName || null,
     messages: formattedMessages,
     pagination: {
       page: safePage,

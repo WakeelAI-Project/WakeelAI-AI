@@ -253,12 +253,12 @@ describe("DocumentGenerationService", () => {
         expect.objectContaining({
           title: "Employment Contract Draft",
           content_html: "<h1>Employment Contract</h1><p>Static terms.</p>",
+          employee_id: "emp-1",
         }),
       );
-      expect(payload).not.toHaveProperty("employee_id");
     });
 
-    it("succeeds for a new-employee contract template that does not contain employee_id", async () => {
+    it("succeeds for a new-employee contract template and attaches authoritative targetEmployeeId", async () => {
       getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
 
       const result = await generateDocument(
@@ -275,12 +275,12 @@ describe("DocumentGenerationService", () => {
         type: "document_draft",
         doc_id: "doc-1",
         doc_type: "Contract",
+        employee_id: "emp-1",
         employee_name: "Ahmed Mohamed",
       });
 
       const payload = saveDocumentFn.mock.calls[0][1];
-      expect(payload).not.toHaveProperty("employee_id");
-      expect(payload.metadata.filled_fields).not.toHaveProperty("employee_id");
+      expect(payload).toHaveProperty("employee_id", "emp-1");
       expect(payload.content_html).toContain("Employee: Ahmed Mohamed");
       expect(payload.content_html).toContain("Position: Software Engineer");
       expect(payload.content_html).toContain("Salary: 25000");
@@ -307,13 +307,13 @@ describe("DocumentGenerationService", () => {
       ]);
     });
 
-    it("does not capture or forward employee_id unless the template explicitly requests it", async () => {
+    it("forwards authoritative targetEmployeeId from context even if template does not have employee_id placeholder", async () => {
       getActiveTemplateFn.mockResolvedValue(templateWithoutEmployeeId);
 
       const result = await generateDocument(
         {
           message:
-            "Create an employment contract for Ahmed Mohamed as Software Engineer with salary 25000 starting 2026-09-01. Employee ID is emp-should-not-be-used.",
+            "Create an employment contract for Ahmed Mohamed as Software Engineer with salary 25000 starting 2026-09-01. Employee ID is emp-123.",
           aiContext,
         },
         deps(),
@@ -321,9 +321,8 @@ describe("DocumentGenerationService", () => {
 
       expect(result.success).toBe(true);
       const payload = saveDocumentFn.mock.calls[0][1];
-      expect(payload).not.toHaveProperty("employee_id");
-      expect(payload.metadata.filled_fields).not.toHaveProperty("employee_id");
-      expect(result.result_card).not.toHaveProperty("employee_id");
+      expect(payload).toHaveProperty("employee_id", "emp-1");
+      expect(result.result_card).toHaveProperty("employee_id", "emp-1");
     });
 
     it("retrieves the active template, renders HTML, saves the draft, and returns document_draft result card", async () => {
@@ -351,7 +350,7 @@ describe("DocumentGenerationService", () => {
         expect.objectContaining({
           document_type: "Contract",
           title: "Employment Contract - Ahmed",
-          employee_id: "emp-123",
+          employee_id: "emp-1",
           template_id: "tpl-1",
         }),
       );
@@ -370,7 +369,7 @@ describe("DocumentGenerationService", () => {
         type: "document_draft",
         doc_id: "doc-1",
         doc_type: "Contract",
-        employee_id: "emp-123",
+        employee_id: "emp-1",
         employee_name: "Ahmed",
       });
     });
@@ -379,7 +378,7 @@ describe("DocumentGenerationService", () => {
       const result = await generateDocument(
         {
           message:
-            "Create an employment contract for Ahmed as Backend Developer with salary 20000 starting 2026-09-01.",
+            "Create an employment contract for Ahmed as Backend Developer starting 2026-09-01.",
           aiContext,
         },
         deps(),
@@ -388,7 +387,7 @@ describe("DocumentGenerationService", () => {
       expect(result.success).toBe(true);
       expect(result.status).toBe("missing_fields");
       expect(result.missing_fields.map((field) => field.field_name)).toEqual([
-        "employee_id",
+        "salary",
       ]);
       expect(saveDocumentFn).not.toHaveBeenCalled();
     });
@@ -417,7 +416,7 @@ describe("DocumentGenerationService", () => {
       expect(payload.content_html).toContain("Employee: Ahmed");
       expect(payload.content_html).toContain("Position: Backend Developer");
       expect(payload.content_html).toContain("Salary: 20000");
-      expect(payload.employee_id).toBe("emp-123");
+      expect(payload.employee_id).toBe("emp-1");
     });
 
     it("treats unavailable company context values as missing instead of inventing them", async () => {
@@ -565,21 +564,18 @@ describe("DocumentGenerationService", () => {
       expect(result.success).toBe(true);
       expect(generateLegalClauseFn).toHaveBeenCalledWith(
         expect.objectContaining({
-          employeeContext: expect.not.objectContaining({
-            employee_id: expect.anything(),
-          }),
-          documentValues: expect.not.objectContaining({
-            employee_id: expect.anything(),
+          employeeContext: expect.objectContaining({
+            employee_id: "emp-1",
           }),
         }),
       );
 
       const payload = saveDocumentFn.mock.calls[0][1];
-      expect(payload).not.toHaveProperty("employee_id");
+      expect(payload).toHaveProperty("employee_id", "emp-1");
       expect(payload.content_html).toContain(
         "Grounded generated termination clause.",
       );
-      expect(result.result_card).not.toHaveProperty("employee_id");
+      expect(result.result_card).toHaveProperty("employee_id", "emp-1");
     });
 
     it("retrieves company-policy knowledge with tenant scope when the template requires policy content", async () => {
