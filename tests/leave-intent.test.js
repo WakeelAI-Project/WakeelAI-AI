@@ -99,4 +99,57 @@ describe("leave intent extraction", () => {
       });
     },
   );
+
+  it("does not carry a completed leave request's dates into a new one started right after it", () => {
+    const intent = enrichLeaveIntentWithDeterministicContext(
+      "so now I want make an annual request",
+      {
+        intent: "create_leave_draft",
+        requiresCapabilities: ["create_leave_draft"],
+        requiresContext: [],
+        arguments: {},
+      },
+      [
+        {
+          role: "user",
+          content: "I want to make a sick leave request",
+        },
+        {
+          role: "assistant",
+          content: "I can help with that leave request, but I need a few required fields first.",
+          missing_fields: [
+            { field_name: "start_date", input_type: "date", label: "Start Date", options: [] },
+            { field_name: "end_date", input_type: "date", label: "End Date", options: [] },
+          ],
+        },
+        {
+          role: "user",
+          content: "Start: 2026-10-25, End: 2026-10-26",
+        },
+        {
+          role: "assistant",
+          content: "I can help with that leave request, but I need a few required fields first.",
+          missing_fields: [
+            { field_name: "attachment_url", input_type: "file", label: "Medical Report", options: [] },
+          ],
+        },
+        {
+          role: "user",
+          content: "[attached medical report]",
+        },
+        {
+          role: "assistant",
+          content: "I've created your sick leave draft.",
+          missing_fields: [],
+        },
+      ],
+      baseDate,
+    );
+
+    // The prior sick leave's dates must not bleed into this brand-new
+    // annual request — they should be absent so the client is prompted
+    // for fresh dates instead of silently reusing the old ones.
+    expect(intent.arguments.start_date).toBeUndefined();
+    expect(intent.arguments.end_date).toBeUndefined();
+  });
 });

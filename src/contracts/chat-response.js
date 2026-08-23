@@ -6,7 +6,8 @@ export const MissingFieldSchema = z.object({
   field_name: z.string(),
   input_type: z.enum(["text", "number", "dropdown", "date", "file"]),
   label: z.string(),
-  options: z.array(z.string()).optional()
+  options: z.array(z.string()).optional(),
+  required: z.boolean().optional()
 });
 
 export const CalculationResultCardSchema = z.object({

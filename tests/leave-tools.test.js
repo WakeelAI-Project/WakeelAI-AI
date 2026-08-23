@@ -57,6 +57,28 @@ describe("Leave Request Tools Integration", () => {
       expect(result.data.missing_fields.map(f => f.field_name)).toContain("end_date");
     });
 
+    it("includes the optional reason field alongside the required missing fields", async () => {
+      const result = await createLeaveDraftTool.execute("I need leave", aiContext, {
+        leave_type: "Annual"
+      });
+
+      const reasonField = result.data.missing_fields.find(f => f.field_name === "reason");
+      expect(reasonField).toBeDefined();
+      expect(reasonField.required).toBe(false);
+
+      const startDateField = result.data.missing_fields.find(f => f.field_name === "start_date");
+      expect(startDateField.required).toBe(true);
+    });
+
+    it("does not re-request reason once the user has already provided it", async () => {
+      const result = await createLeaveDraftTool.execute("I need leave", aiContext, {
+        leave_type: "Annual",
+        reason: "Family event",
+      });
+
+      expect(result.data.missing_fields.map(f => f.field_name)).not.toContain("reason");
+    });
+
     it("rejects invalid dates or types", async () => {
       const result = await createLeaveDraftTool.execute("Submit sick leave", aiContext, {
         leave_type: "Invalid",
@@ -142,6 +164,7 @@ describe("Leave Request Tools Integration", () => {
       expect(result.success).toBe(true);
       expect(result.data.status).toBe("missing_fields");
       expect(result.data.missing_fields.map(f => f.field_name)).toContain("attachment_url");
+      expect(result.data.missing_fields.map(f => f.field_name)).toContain("reason");
     });
 
     it("creates a sick leave draft successfully when attachment_url is provided in field_values", async () => {
