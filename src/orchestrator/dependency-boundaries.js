@@ -64,11 +64,14 @@ export const gatherContextBoundary = async (requiredContext, userContext) => {
     }
   }
 
-  if (requiredContext.includes("rag")) {
-    logger.info("[ContextBoundary] Processing context type = rag");
-    logger.info("[Orchestrator] Gathering RAG context via boundary stub...");
-    gatheredData.knowledge = "knowledge base stub";
-  }
+  // Note: "rag" context (company policy / labor law document retrieval) is NOT
+  // handled here. It's deliberately executed as a capability (company_policy /
+  // labor_law skills, see executeCapabilitiesBoundary below) rather than a
+  // context gatherer, because retrieval needs the LLM-driven query construction
+  // and prompting each skill performs internally. Previously this branch wrote
+  // a literal "knowledge base stub" placeholder into gatheredData, which was
+  // never consumed by anything and could confuse the final LLM into thinking
+  // a (contentless) knowledge lookup had already happened.
 
   logger.info(`[ContextBoundary] Returning gatheredData keys = ${JSON.stringify(Object.keys(gatheredData))}`);
   return gatheredData;
