@@ -138,20 +138,19 @@ function getActiveLeaveMissingFields(conversationMessages = []) {
     const message = conversationMessages[index];
     if (message?.role !== "assistant") continue;
 
+    // Only the single most recent assistant turn can indicate an active,
+    // unfinished leave workflow. If it isn't a leave missing-fields prompt —
+    // whether because the workflow already completed (draft created,
+    // submitted, cancelled) or it never was a leave prompt — the workflow is
+    // over and its dates/fields must not bleed into a new request. Earlier
+    // assistant turns are irrelevant here regardless of what they contain.
     const missingFields = Array.isArray(message.missing_fields)
       ? message.missing_fields
       : [];
-    const fieldNames = missingFields
+
+    return missingFields
       .map((field) => field?.field_name)
-      .filter(Boolean);
-
-    if (fieldNames.some((fieldName) => LEAVE_WORKFLOW_FIELDS.has(fieldName))) {
-      return fieldNames;
-    }
-
-    if (missingFields.length > 0) {
-      return [];
-    }
+      .filter((fieldName) => LEAVE_WORKFLOW_FIELDS.has(fieldName));
   }
 
   return [];

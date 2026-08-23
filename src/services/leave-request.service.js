@@ -93,33 +93,49 @@ const missingFieldFor = (fieldName) => {
       input_type: "dropdown",
       label: "Leave Type",
       options: [...LEAVE_TYPES],
+      required: true,
     },
     start_date: {
       field_name: "start_date",
       input_type: "date",
       label: "Start Date",
       options: [],
+      required: true,
     },
     end_date: {
       field_name: "end_date",
       input_type: "date",
       label: "End Date",
       options: [],
+      required: true,
     },
     reason: {
       field_name: "reason",
       input_type: "text",
       label: "Reason / description",
       options: [],
+      required: false,
     },
   };
 
   return MissingFieldSchema.parse(fields[fieldName]);
 };
 
-const buildMissingFields = (values) => REQUIRED_CREATE_FIELDS
-  .filter((fieldName) => !hasValue(values[fieldName]))
-  .map(missingFieldFor);
+const appendOptionalReasonField = (missingFields, values) => (
+  hasValue(values.reason)
+    ? missingFields
+    : [...missingFields, missingFieldFor("reason")]
+);
+
+const buildMissingFields = (values) => {
+  const missingFields = REQUIRED_CREATE_FIELDS
+    .filter((fieldName) => !hasValue(values[fieldName]))
+    .map(missingFieldFor);
+
+  return missingFields.length > 0
+    ? appendOptionalReasonField(missingFields, values)
+    : missingFields;
+};
 
 const normalizeLeaveDraftArgs = (args = {}) => {
   const normalized = normalizeLeaveType(args.leave_type);
@@ -229,9 +245,12 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
           field_name: "attachment_url",
           input_type: "file",
           label: "Medical Report",
-          options: []
+          options: [],
+          required: true,
         });
-        return createMissingFieldsResult([...missingFields, missingAttachmentField]);
+        return createMissingFieldsResult(
+          appendOptionalReasonField([...missingFields, missingAttachmentField], values)
+        );
       }
     }
 
