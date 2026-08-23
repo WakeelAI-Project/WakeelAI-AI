@@ -58,6 +58,8 @@ const DOCUMENT_GENERATION_CAPABILITY = "document_generation";
 const CREATE_LEAVE_CAPABILITY = "create_leave_draft";
 const SUBMIT_LEAVE_CAPABILITY = "submit_leave_draft";
 const CANCEL_LEAVE_CAPABILITY = "cancel_leave_draft";
+const COMPANY_POLICY_CAPABILITY = "company_policy";
+const LABOR_LAW_CAPABILITY = "labor_law";
 const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
 const LEGACY_LEAVE_REQUEST = "leave_request";
 const MAX_HISTORY_CONTEXT_CHARS = 18000;
@@ -335,6 +337,27 @@ const normalizeIntent = (intent) => {
     !requiresCapabilities.includes(CANCEL_LEAVE_CAPABILITY)
   ) {
     requiresCapabilities.push(CANCEL_LEAVE_CAPABILITY);
+  }
+
+  // The intent-detection LLM is not reliably told to name these capabilities
+  // (INTENT_SYSTEM_PROMPT's examples only ever show requiresContext, never
+  // requiresCapabilities), so — like the leave-draft/document-generation
+  // intents above — deterministically wire the matching skill in whenever
+  // the intent itself already tells us which one is needed. Without this,
+  // company_policy_question/labor_law_question could detect correctly but
+  // never actually execute the retrieval skill that fetches the answer.
+  if (
+    intent?.intent === "company_policy_question" &&
+    !requiresCapabilities.includes(COMPANY_POLICY_CAPABILITY)
+  ) {
+    requiresCapabilities.push(COMPANY_POLICY_CAPABILITY);
+  }
+
+  if (
+    intent?.intent === "labor_law_question" &&
+    !requiresCapabilities.includes(LABOR_LAW_CAPABILITY)
+  ) {
+    requiresCapabilities.push(LABOR_LAW_CAPABILITY);
   }
 
   const requiresContext = Array.isArray(intent?.requiresContext)

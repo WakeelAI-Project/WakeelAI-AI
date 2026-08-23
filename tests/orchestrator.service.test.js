@@ -38,6 +38,11 @@ jest.unstable_mockModule("../src/services/leave-request.service.js", () => ({
   handleCancelLeaveDraft: mockHandleCancelLeaveDraft,
 }));
 
+const mockRetrieveKnowledge = jest.fn();
+jest.unstable_mockModule("../src/rag/retrieval/knowledge-retrieval.service.js", () => ({
+  retrieveKnowledge: mockRetrieveKnowledge,
+}));
+
 const { handleChat } = await import("../src/orchestrator/orchestrator.service.js");
 
 describe("Orchestrator Service", () => {
@@ -46,6 +51,7 @@ describe("Orchestrator Service", () => {
     mockGenerateDocument.mockReset();
     mockHandleCreateLeaveDraft.mockReset();
     mockHandleSubmitLeaveDraft.mockReset();
+    mockRetrieveKnowledge.mockReset();
   });
 
   const baseInput = {
@@ -386,5 +392,58 @@ describe("Orchestrator Service", () => {
       content: "summarize it and write the response in arabic"
     });
     expect(mockInvoke.mock.calls[1][0][0].content).toContain("Do not claim there is no text to summarize");
+  });
+
+  it("retrieves and answers from the company policy skill even when the intent LLM omits requiresCapabilities", async () => {
+    // Regression test: the intent-detection LLM is not reliably prompted to
+    // name "company_policy" in requiresCapabilities (only requiresContext is
+    // demonstrated in INTENT_SYSTEM_PROMPT's examples), so normalizeIntent
+    // must deterministically wire the capability in whenever the intent is
+    // company_policy_question — otherwise the retrieval skill never runs and
+    // the final answer falls back to "I don't have specific information...".
+    mockInvoke.mockResolvedValueOnce({
+      intent: "company_policy_question",
+      requiresCapabilities: [],
+      requiresContext: ["rag"],
+    });
+
+    mockRetrieveKnowledge.mockResolvedValueOnce({
+      chunks: [
+        {
+          title: "Company Handbook",
+          content: "Employees are expected to follow the working hours assigned by the company.",
+        },
+      ],
+      sources: [{ id: "chunk-1", title: "Company Handbook", type: "company-policy" }],
+    });
+
+    // Skill's internal LLM call (plain-string prompt, not structured output)
+    mockInvoke.mockResolvedValueOnce({
+      content: "According to your company policy, employees must follow the assigned working hours.",
+    });
+
+    // Final response synthesis
+    mockInvoke.mockResolvedValueOnce({
+      content: "According to your company policy, employees must follow the assigned working hours.",
+    });
+
+    const result = await handleChat({
+      ...baseInput,
+      message: "what do you know about our company policy",
+    });
+
+    expect(mockRetrieveKnowledge).toHaveBeenCalledTimes(1);
+    expect(mockRetrieveKnowledge).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          knowledgeType: "company-policy",
+          companyId: baseInput.context.companyId,
+        }),
+      }),
+    );
+    expect(result.message).toContain("working hours");
+    expect(result.sources).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "chunk-1" })]),
+    );
   });
 });
