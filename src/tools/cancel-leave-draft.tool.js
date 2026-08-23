@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { logger } from "../shared/logger.js";
 import { handleCancelLeaveDraft } from "../services/leave-request.service.js";
+import { extractRequestIdFromText } from "../orchestrator/leave-draft-context.js";
 
 export const cancelLeaveDraftInputSchema = z.object({
   request_id: z.string().optional().describe("The ID of the leave request draft to cancel."),
@@ -42,12 +43,10 @@ const cancelLeaveDraftTool = {
       };
     }
 
-    // Attempt to parse request_id from message if not provided in args (fallback)
-    let requestId = args.request_id;
-    if (!requestId) {
-        const match = message.match(/\b(req-[a-zA-Z0-9-]+)\b/i);
-        if (match) requestId = match[1];
-    }
+    // Secondary fallback: a request id typed straight into the message. Real ids
+    // are backend GUIDs (Guid.NewGuid()), never a "req-" prefix. The primary
+    // resolution happens deterministically in orchestrator/leave-draft-context.js.
+    const requestId = args.request_id || extractRequestIdFromText(message) || undefined;
 
     const result = await handleCancelLeaveDraft(context, { ...args, request_id: requestId });
 

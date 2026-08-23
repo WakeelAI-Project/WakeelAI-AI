@@ -1,6 +1,7 @@
 import { logger } from "../shared/logger.js";
 import { getEmployeeContext } from "../services/employee-context.service.js";
 import { getCompanyContext } from "../services/company-context.service.js";
+import { resolveLeaveDraftArgs } from "./leave-draft-context.js";
 
 const buildContextError = (err, source) => ({
   error: {
@@ -144,10 +145,21 @@ export const executeCapabilitiesBoundary = async (capabilities, orchestratorCont
       logger.info(`[Orchestrator] Executing capability: ${capabilityName}`);
       // Capabilities contain their own execute function per the contract
       const baseArgs = orchestratorContext.intent?.arguments || {};
-      const args = { ...baseArgs };
+      let args = { ...baseArgs };
       if (orchestratorContext.userContext?.field_values) {
         Object.assign(args, orchestratorContext.userContext.field_values);
       }
+
+      // The LLM never sees a leave request id (history is normalized down to
+      // { role, content }), so resolve it deterministically from the persisted
+      // result_card / actions before the leave tools run.
+      args = resolveLeaveDraftArgs({
+        capability: capabilityName,
+        args,
+        message: orchestratorContext.message,
+        conversationMessages: orchestratorContext.conversationMessages,
+      });
+
       const result = await capability.execute(orchestratorContext.message, orchestratorContext.userContext, args, orchestratorContext.gatheredData);
       
       results.push({

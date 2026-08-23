@@ -1,6 +1,11 @@
-import { MissingFieldSchema, ResultCardSchema } from "../contracts/index.js";
+import { ACTION_TYPES, MissingFieldSchema, ResultCardSchema } from "../contracts/index.js";
 import { getEmployeeContext } from "./employee-context.service.js";
-import { createLeaveDraft, submitLeaveDraft, cancelLeaveDraft } from "../integrations/wakeel/leave-api.js";
+import {
+  createLeaveDraft,
+  submitLeaveDraft,
+  cancelLeaveDraft,
+  getLatestLeaveDraft,
+} from "../integrations/wakeel/leave-api.js";
 import { LEAVE_TYPES, normalizeLeaveType } from "../domain/leave-types.js";
 import { logger } from "../shared/logger.js";
 
@@ -302,16 +307,121 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
   }
 }
 
+/**
+ * Human-readable summary of a draft, used in confirmation / disambiguation text.
+ * Falls back gracefully when the backend only gave us a request_id.
+ */
+const describeDraft = (details) => {
+  const leaveType = hasValue(details?.leave_type)
+    ? `${String(details.leave_type).toLowerCase()} leave`
+    : "leave";
+
+  return hasValue(details?.start_date) && hasValue(details?.end_date)
+    ? `your ${leaveType} request from ${details.start_date} to ${details.end_date}`
+    : `your ${leaveType} request`;
+};
+
+const toActionPayload = (requestId, details) => ({
+  request_id: requestId,
+  leave_type: details?.leave_type ?? null,
+  start_date: details?.start_date ?? null,
+  end_date: details?.end_date ?? null,
+  days_requested: details?.days_requested ?? null,
+});
+
+const createSubmitConfirmationResult = (requestId, details) => ({
+  success: true,
+  status: "needs_confirmation",
+  message:
+    `Just to confirm — should I submit ${describeDraft(details)} to HR? `
+    + "Once it is submitted you cannot undo it yourself. Reply \"yes\" to confirm.",
+  sources: [],
+  action: {
+    type: ACTION_TYPES.LEAVE_SUBMIT_CONFIRMATION,
+    payload: toActionPayload(requestId, details),
+  },
+});
+
+const createDisambiguationResult = (candidates, operation) => {
+  const verb = operation === "cancel_leave_draft" ? "cancel" : "submit";
+  const list = candidates
+    .map((draft, index) => `${index + 1}. ${describeDraft(draft)}`)
+    .join("\n");
+
+  return {
+    success: true,
+    status: "needs_disambiguation",
+    message: `You have more than one open leave draft. Which one should I ${verb}?\n${list}`,
+    sources: [],
+    action: {
+      type: ACTION_TYPES.LEAVE_DRAFT_SELECTION,
+      payload: {
+        operation,
+        drafts: candidates.map((draft) => toActionPayload(draft.request_id, draft)),
+      },
+    },
+  };
+};
+
+const createNoDraftFoundResult = (operation) => ({
+  success: true,
+  status: "no_draft_found",
+  message:
+    operation === "cancel_leave_draft"
+      ? "I couldn't find a leave draft to cancel. Would you like me to create one?"
+      : "I couldn't find a leave draft to submit. Would you like me to create one?",
+  sources: [],
+  action: null,
+});
+
+/**
+ * Last-resort resolution of the draft the user means, via the backend.
+ * A missing endpoint / 404 / transient failure all mean "no draft found" here —
+ * never a technical error surfaced to the employee.
+ */
+const resolveDraftFromBackend = async (aiContext, getLatestLeaveDraftFn) => {
+  try {
+    return await getLatestLeaveDraftFn(aiContext);
+  } catch (error) {
+    logger.warn(
+      `[LeaveRequestService] Latest-draft lookup unavailable: ${error.message}`
+    );
+    return null;
+  }
+};
+
 export async function handleSubmitLeaveDraft(aiContext, args, dependencies = {}) {
-  const { submitLeaveDraftFn = submitLeaveDraft } = dependencies;
-  const requestId = args.request_id;
+  const {
+    submitLeaveDraftFn = submitLeaveDraft,
+    getLatestLeaveDraftFn = getLatestLeaveDraft,
+  } = dependencies;
+
+  const candidates = Array.isArray(args.leave_draft_candidates)
+    ? args.leave_draft_candidates
+    : [];
+
+  if (!args.request_id && candidates.length > 1) {
+    return createDisambiguationResult(candidates, "submit_leave_draft");
+  }
+
+  let requestId = args.request_id;
+  let details = args.leave_draft_details || null;
 
   if (!requestId) {
-    return createErrorResult(createDomainError(
-      "LEAVE_REQUEST_ID_REQUIRED",
-      "I need a draft request ID to submit.",
-      400
-    ));
+    const latest = await resolveDraftFromBackend(aiContext, getLatestLeaveDraftFn);
+    if (latest) {
+      requestId = latest.request_id;
+      details = latest;
+    }
+  }
+
+  if (!requestId) {
+    return createNoDraftFoundResult("submit_leave_draft");
+  }
+
+  // Submitting is not reversible by the employee, so never do it implicitly.
+  if (!args.leave_draft_confirmed) {
+    return createSubmitConfirmationResult(requestId, details);
   }
 
   try {
@@ -340,15 +450,30 @@ export async function handleSubmitLeaveDraft(aiContext, args, dependencies = {})
 }
 
 export async function handleCancelLeaveDraft(aiContext, args, dependencies = {}) {
-  const { cancelLeaveDraftFn = cancelLeaveDraft } = dependencies;
-  const requestId = args.request_id;
+  const {
+    cancelLeaveDraftFn = cancelLeaveDraft,
+    getLatestLeaveDraftFn = getLatestLeaveDraft,
+  } = dependencies;
+
+  const candidates = Array.isArray(args.leave_draft_candidates)
+    ? args.leave_draft_candidates
+    : [];
+
+  if (!args.request_id && candidates.length > 1) {
+    return createDisambiguationResult(candidates, "cancel_leave_draft");
+  }
+
+  let requestId = args.request_id;
 
   if (!requestId) {
-    return createErrorResult(createDomainError(
-      "LEAVE_REQUEST_ID_REQUIRED",
-      "I need a draft request ID to cancel.",
-      400
-    ));
+    const latest = await resolveDraftFromBackend(aiContext, getLatestLeaveDraftFn);
+    if (latest) {
+      requestId = latest.request_id;
+    }
+  }
+
+  if (!requestId) {
+    return createNoDraftFoundResult("cancel_leave_draft");
   }
 
   try {

@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ChatResponseSchema } from "../contracts/index.js";
 import { createOrchestratorContext } from "./orchestrator-context.js";
 import { enrichLeaveIntentWithDeterministicContext } from "./leave-intent.js";
+import { reinforceLeaveConfirmationIntent } from "./leave-draft-context.js";
 import {
   gatherContextBoundary,
   executeCapabilitiesBoundary,
@@ -675,6 +676,14 @@ export const handleChat = async ({
       await determineIntent(message, orchContext.conversationMessages),
     );
     orchContext.intent = enrichLeaveIntentWithDeterministicContext(
+      message,
+      orchContext.intent,
+      orchContext.conversationMessages,
+    );
+    // A bare "yes" / "نعم" answering the submit-confirmation question must land
+    // on submit_leave_draft, not on whatever the intent LLM guessed. Runs last
+    // so it wins over the create-leave enrichment above.
+    orchContext.intent = reinforceLeaveConfirmationIntent(
       message,
       orchContext.intent,
       orchContext.conversationMessages,

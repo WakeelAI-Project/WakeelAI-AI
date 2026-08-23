@@ -7,6 +7,10 @@ jest.unstable_mockModule("../src/integrations/wakeel/wakeel-client.js", () => ({
   wakeelFetch: mockWakeelFetch,
 }));
 
+// Real request ids are backend GUIDs (Guid.NewGuid()).
+const DRAFT_GUID = "6f1c2a34-5b6d-4e7f-8a90-b1c2d3e4f567";
+const OTHER_DRAFT_GUID = "11112222-3333-4444-5555-666677778888";
+
 describe("Leave Request Tools Integration", () => {
   const aiContext = {
     userId: "employee-user-1",
@@ -207,48 +211,122 @@ describe("Leave Request Tools Integration", () => {
   });
 
   describe("submitLeaveDraftTool", () => {
-    it("submits the draft via PATCH using M2M and structured arguments", async () => {
+    it("asks for confirmation before submitting, because submitting is irreversible", async () => {
+      const result = await submitLeaveDraftTool.execute("Submit it", aiContext, {
+        request_id: DRAFT_GUID,
+        leave_draft_details: {
+          request_id: DRAFT_GUID,
+          leave_type: "Annual",
+          start_date: "2030-09-01",
+          end_date: "2030-09-03",
+        },
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("needs_confirmation");
+      expect(result.action).toEqual({
+        type: "leave_submit_confirmation",
+        payload: expect.objectContaining({
+          request_id: DRAFT_GUID,
+          leave_type: "Annual",
+          start_date: "2030-09-01",
+          end_date: "2030-09-03",
+        }),
+      });
+      expect(mockWakeelFetch).not.toHaveBeenCalled();
+    });
+
+    it("submits the draft via PATCH using M2M once the turn is confirmed", async () => {
       mockWakeelFetch.mockResolvedValueOnce({
-        request_id: "req-123",
+        request_id: DRAFT_GUID,
         status: "Pending",
       });
 
-      const args = { request_id: "req-123" };
-      const result = await submitLeaveDraftTool.execute("Submit it", aiContext, args);
+      const result = await submitLeaveDraftTool.execute("yes", aiContext, {
+        request_id: DRAFT_GUID,
+        leave_draft_confirmed: true,
+      });
 
-      if (!result.success) console.error("SUBMIT FAIL:", JSON.stringify(result, null, 2));
       expect(result.success).toBe(true);
       expect(result.data.status).toBe("submitted");
-      expect(result.data.leave_request.request_id).toBe("req-123");
+      expect(result.data.leave_request.request_id).toBe(DRAFT_GUID);
 
       expect(mockWakeelFetch).toHaveBeenCalledWith(
         "PATCH",
-        "/api/ai/leave-requests/req-123/submit",
+        `/api/ai/leave-requests/${DRAFT_GUID}/submit`,
         aiContext
       );
     });
 
-    it("falls back to parsing request_id from message if args are missing", async () => {
+    it("falls back to parsing a GUID request_id out of the message", async () => {
+      const result = await submitLeaveDraftTool.execute(
+        `Submit ${OTHER_DRAFT_GUID} please`,
+        aiContext,
+        {}
+      );
+
+      expect(result.data.status).toBe("needs_confirmation");
+      expect(result.action.payload.request_id).toBe(OTHER_DRAFT_GUID);
+      expect(mockWakeelFetch).not.toHaveBeenCalled();
+    });
+
+    it("asks the backend for the latest draft when nothing else resolves", async () => {
       mockWakeelFetch.mockResolvedValueOnce({
-        request_id: "req-fallback",
-        status: "Pending",
+        request_id: DRAFT_GUID,
+        leave_type: "Sick",
+        start_date: "2030-10-01",
+        end_date: "2030-10-02",
+        status: "Draft",
       });
 
-      // Pass empty args, but provide the ID in the message
-      const result = await submitLeaveDraftTool.execute("Submit req-fallback please", aiContext, {});
+      const result = await submitLeaveDraftTool.execute("Submit the draft", aiContext, {});
+
+      expect(mockWakeelFetch).toHaveBeenCalledWith(
+        "GET",
+        "/api/ai/leave-requests/latest-draft",
+        aiContext
+      );
+      expect(result.data.status).toBe("needs_confirmation");
+      expect(result.action.payload.request_id).toBe(DRAFT_GUID);
+    });
+
+    it("returns a helpful message (not a technical error) when no draft exists", async () => {
+      const notFound = new Error("not found");
+      notFound.status = 404;
+      mockWakeelFetch.mockRejectedValueOnce(notFound);
+
+      const result = await submitLeaveDraftTool.execute("Submit the draft", aiContext, {});
 
       expect(result.success).toBe(true);
-      expect(mockWakeelFetch).toHaveBeenCalledWith(
-        "PATCH",
-        "/api/ai/leave-requests/req-fallback/submit",
-        aiContext
+      expect(result.data.status).toBe("no_draft_found");
+      expect(result.message).toBe(
+        "I couldn't find a leave draft to submit. Would you like me to create one?"
       );
     });
 
-    it("fails cleanly if request_id is not provided and cannot be parsed", async () => {
-      const result = await submitLeaveDraftTool.execute("Submit the draft", aiContext, {});
-      expect(result.success).toBe(false);
-      expect(result.data.error.code).toBe("LEAVE_REQUEST_ID_REQUIRED");
+    it("asks which draft when more than one is open", async () => {
+      const result = await submitLeaveDraftTool.execute("send it", aiContext, {
+        leave_draft_candidates: [
+          {
+            request_id: DRAFT_GUID,
+            leave_type: "Annual",
+            start_date: "2030-09-01",
+            end_date: "2030-09-03",
+          },
+          {
+            request_id: OTHER_DRAFT_GUID,
+            leave_type: "Unpaid",
+            start_date: "2030-11-01",
+            end_date: "2030-11-02",
+          },
+        ],
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("needs_disambiguation");
+      expect(result.action.type).toBe("leave_draft_selection");
+      expect(result.action.payload.drafts).toHaveLength(2);
+      expect(result.message).toContain("annual leave request from 2030-09-01 to 2030-09-03");
       expect(mockWakeelFetch).not.toHaveBeenCalled();
     });
   });
@@ -257,17 +335,31 @@ describe("Leave Request Tools Integration", () => {
     it("cancels the draft via DELETE using M2M and structured arguments", async () => {
       mockWakeelFetch.mockResolvedValueOnce({}); // Empty success for delete
 
-      const args = { request_id: "req-cancel-1" };
+      const args = { request_id: DRAFT_GUID };
       const result = await cancelLeaveDraftTool.execute("Cancel my draft", aiContext, args);
 
       expect(result.success).toBe(true);
       expect(result.data.status).toBe("cancelled");
-      expect(result.data.leave_request.request_id).toBe("req-cancel-1");
+      expect(result.data.leave_request.request_id).toBe(DRAFT_GUID);
 
       expect(mockWakeelFetch).toHaveBeenCalledWith(
         "DELETE",
-        "/api/ai/leave-requests/req-cancel-1",
+        `/api/ai/leave-requests/${DRAFT_GUID}`,
         aiContext
+      );
+    });
+
+    it("returns a helpful message when there is no draft to cancel", async () => {
+      const notFound = new Error("not found");
+      notFound.status = 404;
+      mockWakeelFetch.mockRejectedValueOnce(notFound);
+
+      const result = await cancelLeaveDraftTool.execute("cancel the request", aiContext, {});
+
+      expect(result.success).toBe(true);
+      expect(result.data.status).toBe("no_draft_found");
+      expect(result.message).toBe(
+        "I couldn't find a leave draft to cancel. Would you like me to create one?"
       );
     });
   });

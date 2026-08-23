@@ -10,6 +10,7 @@ const {
   createLeaveDraft,
   submitLeaveDraft,
   cancelLeaveDraft,
+  getLatestLeaveDraft,
 } = await import("../src/integrations/wakeel/leave-api.js");
 
 describe("Leave API Integration", () => {
@@ -220,6 +221,56 @@ describe("Leave API Integration", () => {
     await expect(submitLeaveDraft(aiContext, "req-nonexistent")).rejects.toMatchObject({
       backendError: "leave_request_not_found",
       status: 404,
+    });
+  });
+
+  describe("getLatestLeaveDraft", () => {
+    const DRAFT_GUID = "6f1c2a34-5b6d-4e7f-8a90-b1c2d3e4f567";
+
+    it("GETs the internal latest-draft endpoint with the M2M context", async () => {
+      mockWakeelFetch.mockResolvedValueOnce({
+        request_id: DRAFT_GUID,
+        leave_type: "Annual",
+        start_date: "2030-09-01",
+        end_date: "2030-09-03",
+        days_requested: 3,
+        status: "Draft",
+      });
+
+      const result = await getLatestLeaveDraft(aiContext);
+
+      expect(mockWakeelFetch).toHaveBeenCalledWith(
+        "GET",
+        "/api/ai/leave-requests/latest-draft",
+        aiContext,
+      );
+      expect(result.request_id).toBe(DRAFT_GUID);
+    });
+
+    it("treats 404 as 'no draft found', not an error", async () => {
+      const error = new Error("Resource not found");
+      error.status = 404;
+      mockWakeelFetch.mockRejectedValueOnce(error);
+
+      await expect(getLatestLeaveDraft(aiContext)).resolves.toBeNull();
+    });
+
+    it("returns null for an empty body", async () => {
+      mockWakeelFetch.mockResolvedValueOnce(null);
+      await expect(getLatestLeaveDraft(aiContext)).resolves.toBeNull();
+    });
+
+    it("returns null when the payload has no usable request_id", async () => {
+      mockWakeelFetch.mockResolvedValueOnce({ status: "Draft" });
+      await expect(getLatestLeaveDraft(aiContext)).resolves.toBeNull();
+    });
+
+    it("rethrows non-404 backend failures", async () => {
+      const error = new Error("boom");
+      error.status = 500;
+      mockWakeelFetch.mockRejectedValueOnce(error);
+
+      await expect(getLatestLeaveDraft(aiContext)).rejects.toThrow("boom");
     });
   });
 });

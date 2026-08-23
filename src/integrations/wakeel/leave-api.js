@@ -12,9 +12,10 @@ import { LEAVE_TYPES, normalizeLeaveType } from "../../domain/leave-types.js";
  * The employee JWT (employeeJwt) is NO LONGER required or accepted here.
  *
  * Endpoints per API v8:
- *   POST   /api/ai/leave-requests            — create a leave draft
- *   POST   /api/ai/leave-requests/:id/submit — submit draft to Pending
- *   DELETE /api/ai/leave-requests/:id        — cancel draft
+ *   POST   /api/ai/leave-requests                 — create a leave draft
+ *   POST   /api/ai/leave-requests/:id/submit      — submit draft to Pending
+ *   DELETE /api/ai/leave-requests/:id             — cancel draft
+ *   GET    /api/ai/leave-requests/latest-draft    — most recent Draft (404 = none)
  */
 
 const LeaveCreateRequestSchema = z.object({
@@ -45,6 +46,19 @@ const LeaveSubmitResponseSchema = z.object({
   request_id: z.string().trim().min(1),
   status: z.literal("Pending"),
   days_requested: z.number().int().optional(),
+}).passthrough();
+
+/**
+ * Lenient on purpose: only request_id is load-bearing. The rest is used to make
+ * the confirmation message concrete ("your Annual leave from X to Y").
+ */
+const LeaveLatestDraftResponseSchema = z.object({
+  request_id: z.string().trim().min(1),
+  leave_type: z.string().optional(),
+  start_date: z.string().optional(),
+  end_date: z.string().optional(),
+  days_requested: z.number().optional(),
+  status: z.string().optional(),
 }).passthrough();
 
 const createLeaveApiError = ({ code, message, status, details }) => {
@@ -130,6 +144,40 @@ export async function submitLeaveDraft(aiContext, requestId, dependencies = {}) 
     : await wakeelFetch("PATCH", endpoint, aiContext);
 
   return parseJsonResponse(data, endpoint, LeaveSubmitResponseSchema);
+}
+
+/**
+ * Fetches the employee's most recent Draft leave request.
+ *
+ * Last-resort fallback used when a typed "send it" / "cancel it" cannot be
+ * resolved from conversation history. Uses wakeelFetch, so it carries the same
+ * X-Internal-API-Key + X-User-Id / X-Company-Id / X-Role headers as every other
+ * internal call. A 404 means "no draft found" and is NOT an error.
+ *
+ * @param {import("../../contracts/index.js").AIContext} aiContext Trusted AI context
+ * @param {Object} [dependencies]
+ * @returns {Promise<z.infer<typeof LeaveLatestDraftResponseSchema>|null>}
+ */
+export async function getLatestLeaveDraft(aiContext, dependencies = {}) {
+  const { fetchFn } = dependencies;
+  const endpoint = "/api/ai/leave-requests/latest-draft";
+
+  let data;
+  try {
+    data = fetchFn
+      ? await fetchFn(endpoint)
+      : await wakeelFetch("GET", endpoint, aiContext);
+  } catch (error) {
+    if (error?.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+
+  if (!data) return null;
+
+  const parsed = LeaveLatestDraftResponseSchema.safeParse(data);
+  return parsed.success ? parsed.data : null;
 }
 
 /**

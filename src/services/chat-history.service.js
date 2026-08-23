@@ -183,7 +183,7 @@ export async function getHistory(conversationId, context, page = 1, limit = 20) 
  * @param {string} conversationId
  * @param {import("../contracts/index.js").AIContext} context
  * @param {number} limit
- * @returns {Promise<Array<{role: string, content: string, missing_fields: Array, result_card: Object|null, createdAt: Date}>>}
+ * @returns {Promise<Array<{role: string, content: string, missing_fields: Array, actions: Array, result_card: Object|null, createdAt: Date}>>}
  */
 export async function getRecentHistoryForContext(
   conversationId,
@@ -204,6 +204,10 @@ export async function getRecentHistoryForContext(
     role: msg.role,
     content: msg.content,
     missing_fields: msg.missing_fields || [],
+    // actions carry the leave request_id + status, which is how a later
+    // "ok send it" turn resolves which draft the user means, and how an
+    // already-submitted/cancelled draft is excluded from that resolution.
+    actions: msg.actions || [],
     result_card: msg.result_card || null,
     createdAt: msg.createdAt,
   }));
