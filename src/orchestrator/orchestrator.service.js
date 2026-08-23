@@ -286,7 +286,16 @@ Gathered Data Context:
 ${JSON.stringify(gatheredData || {}, null, 2)}
 
 Capability Execution Results:
-${JSON.stringify(capabilityResults || [], null, 2)}`,
+${JSON.stringify(capabilityResults || [], null, 2)}
+
+RESPONSE FORMATTING RULES (MANDATORY):
+- Use standard Markdown with ASCII asterisks only: **bold** for emphasis, *italic* for light emphasis.
+- Do NOT use Unicode asterisk characters (∗ ＊ ﹡ ⁎ ٭) anywhere in your response.
+- For mathematical calculations and results, format them as plain Markdown text with bold emphasis where needed.
+  Example: مكافأة نهاية الخدمة = 0 × (0.5 × 600) = **0 جنيه**
+- Do NOT wrap entire calculation lines, Arabic sentences, or bold text inside LaTeX math delimiters \\(...\\) or \\[...\\].
+- Only use LaTeX math delimiters for pure mathematical expressions that contain no Arabic text, no markdown bold, and no plain-text labels.
+- Tables, lists, headings, and code blocks follow standard GitHub Markdown syntax.`,
   },
   ...normalizeConversationMessages(
     conversationMessages,
