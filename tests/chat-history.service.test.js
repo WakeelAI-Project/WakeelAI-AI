@@ -27,6 +27,12 @@ describe("ChatHistoryService", () => {
 
   describe("persistUserMessage", () => {
     it("should upsert conversation and save user message", async () => {
+      const contextWithFields = {
+        ...context,
+        field_values: {
+          document_type: "Warning_Letter",
+        },
+      };
       repository.upsertConversation.mockResolvedValue({
         conversationId,
         userId: context.userId,
@@ -35,7 +41,7 @@ describe("ChatHistoryService", () => {
       });
       repository.saveMessage.mockResolvedValue({});
 
-      await chatHistoryService.persistUserMessage(conversationId, context, "Hello AI");
+      await chatHistoryService.persistUserMessage(conversationId, contextWithFields, "Hello AI");
 
       expect(repository.upsertConversation).toHaveBeenCalledWith({
         conversationId,
@@ -50,6 +56,9 @@ describe("ChatHistoryService", () => {
         companyId: context.companyId,
         role: "user",
         content: "Hello AI",
+        field_values: {
+          document_type: "Warning_Letter",
+        },
       }));
     });
   });
@@ -161,6 +170,7 @@ describe("ChatHistoryService", () => {
         {
           role: "user",
           content: "Question",
+          field_values: { document_type: "Contract" },
           missing_fields: [],
           result_card: null,
           createdAt: new Date("2030-01-01T00:00:00Z"),
@@ -187,6 +197,7 @@ describe("ChatHistoryService", () => {
           role: "user",
           content: "Question",
           missing_fields: [],
+          field_values: { document_type: "Contract" },
           // actions are surfaced so leave-draft ids can be resolved from history
           actions: [],
           result_card: null,
@@ -197,6 +208,7 @@ describe("ChatHistoryService", () => {
           content: "Answer",
           missing_fields: [],
           actions: [],
+          field_values: null,
           result_card: null,
           createdAt: new Date("2030-01-01T00:00:01Z"),
         },

@@ -1164,6 +1164,102 @@ describe("DocumentGenerationService", () => {
       );
     });
 
+    it.each(["Contract", "Warning_Letter", "Termination_Letter"])(
+      "REGRESSION: keeps prior structured document_type=%s across later missing-field submissions",
+      async (documentType) => {
+        getActiveTemplateFn.mockImplementation(async (_context, requestedType) => ({
+          ...templateWithoutEmployeeId,
+          document_type: requestedType,
+          content_template: [
+            `<h1>${requestedType}</h1>`,
+            "<p>Employee: {{employee_name}}</p>",
+            "<p>Position: {{job_title}}</p>",
+            "<p>Salary: {{salary}}</p>",
+            "<p>Start: {{start_date}}</p>",
+          ].join("\n"),
+        }));
+        saveDocumentFn.mockImplementation(async (_context, payload) => ({
+          ...saveResponse,
+          document_id: `doc-${payload.document_type}`,
+          document_type: payload.document_type,
+        }));
+
+        const conversationMessages = [
+          {
+            role: "user",
+            content: "/generate document",
+          },
+          {
+            role: "assistant",
+            content: "I can generate a document draft, but I need the document type first.",
+            missing_fields: [{
+              field_name: "document_type",
+              input_type: "dropdown",
+              label: "Document Type",
+              options: ["Contract", "Warning_Letter", "Termination_Letter"],
+            }],
+          },
+          {
+            role: "user",
+            content: "Continue with the provided information",
+            field_values: {
+              document_type: documentType,
+            },
+          },
+          {
+            role: "assistant",
+            content: "I can create that draft, but I need a few required fields first.",
+            missing_fields: [
+              { field_name: "employee_name", input_type: "text", label: "Employee Name", options: [] },
+              { field_name: "job_title", input_type: "text", label: "Job Title", options: [] },
+              { field_name: "salary", input_type: "number", label: "Salary", options: [] },
+              { field_name: "start_date", input_type: "date", label: "Start Date", options: [] },
+            ],
+          },
+        ];
+
+        const currentContext = {
+          ...aiContext,
+          field_values: {
+            employee_name: "Ahmed Hassan",
+            job_title: "Senior Developer",
+            salary: "25000",
+            start_date: "2026-09-01",
+          },
+        };
+
+        const result = await generateDocument(
+          {
+            message: "Continue with the provided information",
+            aiContext: currentContext,
+            conversationMessages,
+          },
+          deps(),
+        );
+
+        expect(result.success).toBe(true);
+        expect(result.status).toBe("saved");
+        expect(result.missing_fields).toBeUndefined();
+        expect(getActiveTemplateFn).toHaveBeenCalledWith(currentContext, documentType);
+        expect(saveDocumentFn).toHaveBeenCalledWith(
+          currentContext,
+          expect.objectContaining({
+            document_type: documentType,
+            metadata: expect.objectContaining({
+              filled_fields: expect.objectContaining({
+                employee_name: "Ahmed Hassan",
+                job_title: "Senior Developer",
+                salary: "25000",
+                start_date: "2026-09-01",
+              }),
+            }),
+          }),
+        );
+        expect(result.document.document_type).toBe(documentType);
+        expect(result.result_card.doc_type).toBe(documentType);
+      },
+    );
+
     it("REGRESSION: field_values take precedence over conversation history extraction", async () => {
       // When field_values are provided (from form submission), they should override
       // any potentially incorrect values extracted from conversation text

@@ -44,6 +44,10 @@ const messageSchema = new mongoose.Schema(
       type: Array,
       default: [],
     },
+    field_values: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
     missing_fields: {
       type: Array,
       default: [],

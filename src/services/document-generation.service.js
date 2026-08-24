@@ -371,6 +371,14 @@ export function extractFieldValuesFromMessage(
   );
 }
 
+const getStructuredFieldValues = (messageOrContext = {}) =>
+  messageOrContext?.field_values && typeof messageOrContext.field_values === "object"
+    ? messageOrContext.field_values
+    : {};
+
+const getDocumentTypeValueFromStructuredFields = (values = {}) =>
+  values.document_type || values.documentType || null;
+
 const normalizeDocumentType = (value) => {
   const normalized = normalizeWhitespace(value)
     .toLowerCase()
@@ -400,8 +408,7 @@ const normalizeDocumentType = (value) => {
 export function resolveDocumentTypeFromMessages(messages, aiContext = {}) {
   // 1. Direct resolution from aiContext structured field_values or properties
   const contextDocType =
-    aiContext?.field_values?.document_type ||
-    aiContext?.field_values?.documentType ||
+    getDocumentTypeValueFromStructuredFields(getStructuredFieldValues(aiContext)) ||
     aiContext?.document_type ||
     aiContext?.documentType;
 
@@ -410,7 +417,19 @@ export function resolveDocumentTypeFromMessages(messages, aiContext = {}) {
     if (explicit) return explicit;
   }
 
-  // 2. Text extraction from conversation messages
+  // 2. Prior form submissions are stored as structured field_values, not as
+  // natural-language message content. Read newest first so a later correction wins.
+  for (const message of [...(messages || [])].reverse()) {
+    const messageDocType = getDocumentTypeValueFromStructuredFields(
+      getStructuredFieldValues(message),
+    );
+    if (!messageDocType) continue;
+
+    const explicit = normalizeDocumentType(messageDocType);
+    if (explicit) return explicit;
+  }
+
+  // 3. Text extraction from conversation messages
   const combinedText = (messages || [])
     .map((message) => message.content || "")
     .join("\n");
@@ -609,6 +628,10 @@ const collectValuesFromMessages = (messages, requiredFields, options = {}) => {
         message.content || "",
         requiredFields,
         options,
+      ),
+      selectUserSuppliedFields(
+        getStructuredFieldValues(message),
+        requiredFields,
       ),
     );
   }

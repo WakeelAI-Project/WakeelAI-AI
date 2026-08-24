@@ -68,6 +68,7 @@ export async function persistUserMessage(conversationId, context, messageContent
       companyId,
       role: "user",
       content: messageContent,
+      field_values: context.field_values || null,
     });
 
     // 3. Set conversation title from the first message (if not already set)
@@ -204,6 +205,7 @@ export async function getRecentHistoryForContext(
     role: msg.role,
     content: msg.content,
     missing_fields: msg.missing_fields || [],
+    field_values: msg.field_values || null,
     // actions carry the leave request_id + status, which is how a later
     // "ok send it" turn resolves which draft the user means, and how an
     // already-submitted/cancelled draft is excluded from that resolution.
