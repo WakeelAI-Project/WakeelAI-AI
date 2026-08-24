@@ -47,7 +47,7 @@ const companyPolicySkill = {
         context: {
           knowledgeType: "company-policy",
           companyId: context.companyId,
-          topK: 3,
+          topK: 5,
         },
       });
 
@@ -60,7 +60,7 @@ const companyPolicySkill = {
         return {
           success: true,
           data: {
-            answer: "No relevant company-specific policy was found.",
+            answer: "No company policy has been uploaded yet.",
           },
           message: null,
           sources: [],

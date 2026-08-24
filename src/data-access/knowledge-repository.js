@@ -29,13 +29,15 @@ export const replaceKnowledgeChunks = async ({
   knowledgeVersion,
   chunks,
 }) => {
-  const filter = buildDocumentFilter({
-    documentId,
-    knowledgeType,
-    scope,
-    companyId,
-    knowledgeVersion,
-  });
+  const filter = scope === "company" && knowledgeType === "company-policy"
+    ? { knowledgeType, scope, companyId: companyId ?? null }
+    : buildDocumentFilter({
+        documentId,
+        knowledgeType,
+        scope,
+        companyId,
+        knowledgeVersion,
+      });
 
   await KnowledgeChunk.deleteMany(filter);
   return KnowledgeChunk.insertMany(chunks, { ordered: true });

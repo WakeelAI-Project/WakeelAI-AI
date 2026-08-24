@@ -57,17 +57,17 @@ export const postChat = async (req, res, next) => {
     }
 
     // Canonical context: identity from trusted headers + conversationId from body.context.
-    // targetEmployeeId may only be established by HR_Manager.
-    // Only extract it here for potential NEW conversation creation — existing conversations
-    // will have their persisted value restored (and override this) below.
-    const isHrManager = trustedHeaders.role === 'HR_Manager';
+    const canTarget = ["HR_Manager", "Owner", "Company_Owner", "CompanyOwner", "Admin"].includes(trustedHeaders.role);
+    const rawTargetId = field_values?.targetEmployeeId ?? field_values?.target_employee_id ?? context?.targetEmployeeId ?? context?.target_employee_id ?? null;
+    const rawTargetName = field_values?.targetEmployeeName ?? field_values?.target_employee_name ?? context?.targetEmployeeName ?? context?.target_employee_name ?? null;
+
     const fullContext = {
       userId: trustedHeaders.userId,
       companyId: trustedHeaders.companyId,
       role: trustedHeaders.role,
       conversationId: context.conversationId,
-      targetEmployeeId: isHrManager ? (field_values?.targetEmployeeId ?? null) : null,
-      targetEmployeeName: isHrManager ? (field_values?.targetEmployeeName ?? null) : null,
+      targetEmployeeId: canTarget ? rawTargetId : null,
+      targetEmployeeName: canTarget ? rawTargetName : null,
       // Forward optional fields if provided (forward-compat for when .NET proxies them)
       ...(language !== undefined && { language }),
       ...(field_values !== undefined && { field_values }),
@@ -85,10 +85,8 @@ export const postChat = async (req, res, next) => {
     const conversation = await chatHistoryService.ensureConversation(conversationId, fullContext);
 
     // The persisted conversation is the authoritative source for target employee scope.
-    // Always overwrite from the DB value (even if null) to prevent client-side retargeting
-    // of an existing conversation and to restore context for subsequent turns.
-    fullContext.targetEmployeeId = conversation?.targetEmployeeId ?? null;
-    fullContext.targetEmployeeName = conversation?.targetEmployeeName ?? null;
+    fullContext.targetEmployeeId = conversation?.targetEmployeeId || fullContext.targetEmployeeId || null;
+    fullContext.targetEmployeeName = conversation?.targetEmployeeName || fullContext.targetEmployeeName || null;
 
     // 2. Load previous scoped turns before orchestration so follow-ups like
     // "summarize it" can refer to the assistant's prior answer.
@@ -105,15 +103,8 @@ export const postChat = async (req, res, next) => {
       conversationMessages,
     });
 
-    // 4. Persist the current user message and assistant response.
-    let persistedMessage = message;
-    if (field_values && Object.keys(field_values).length > 0) {
-      const formattedFields = Object.entries(field_values)
-          .map(([key, val]) => `${key}: ${val}`)
-          .join('\n');
-      persistedMessage = `${message}\n\n[Provided Data]\n${formattedFields}`;
-    }
-    await chatHistoryService.persistUserMessage(conversationId, fullContext, persistedMessage);
+    // 4. Persist the current user message and assistant response cleanly.
+    await chatHistoryService.persistUserMessage(conversationId, fullContext, message);
     await chatHistoryService.persistAssistantMessage(conversationId, fullContext, result);
 
     return res.status(200).json(result);

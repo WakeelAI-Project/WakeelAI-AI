@@ -54,7 +54,7 @@ describe("CompanyPolicySkill", () => {
       context: {
         knowledgeType: "company-policy",
         companyId: "c123", // Verifies strict tenant isolation
-        topK: 3,
+        topK: 5,
       }
     });
 
@@ -78,7 +78,7 @@ describe("CompanyPolicySkill", () => {
     expect(mockInvoke).not.toHaveBeenCalled(); // LLM is bypassed
 
     expect(result.success).toBe(true);
-    expect(result.data.answer).toContain("No relevant company-specific policy");
+    expect(result.data.answer).toContain("No company policy has been uploaded yet.");
     expect(result.sources).toEqual([]);
   });
 

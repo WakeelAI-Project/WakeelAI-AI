@@ -11,7 +11,8 @@ import { wakeelFetch } from "./wakeel-client.js";
  */
 export const getEmployeeContextApi = async (aiContext) => {
   const fetchContext = { ...aiContext };
-  if (aiContext.role === 'HR_Manager' && aiContext.targetEmployeeId) {
+  const canTarget = ["HR_Manager", "Owner", "Company_Owner", "CompanyOwner", "Admin"].includes(aiContext.role);
+  if (canTarget && aiContext.targetEmployeeId) {
     fetchContext.userId = aiContext.targetEmployeeId;
   }
   return wakeelFetch("GET", "/api/ai/employee-context", fetchContext);

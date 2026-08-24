@@ -63,8 +63,8 @@ const COMPANY_POLICY_CAPABILITY = "company_policy";
 const LABOR_LAW_CAPABILITY = "labor_law";
 const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
 const LEGACY_LEAVE_REQUEST = "leave_request";
-const MAX_HISTORY_CONTEXT_CHARS = 3500;
-const MAX_INTENT_HISTORY_CHARS = 1500;
+const MAX_HISTORY_CONTEXT_CHARS = 10000;
+const MAX_INTENT_HISTORY_CHARS = 3000;
 
 const COMPANY_CONTEXT_TERMS = [
   "name",
@@ -414,32 +414,79 @@ const normalizeIntent = (intent) => {
   };
 };
 
-export const reinforceIntentWithDeterministicContext = (message, intent) => {
-  const normalizedIntent = normalizeIntent(intent);
+export const messageRequestsEmployeeContext = (message = "", userContext = {}) => {
+  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  if (!normalized) return false;
 
-  if (!messageRequestsCompanyContext(message)) {
-    return normalizedIntent;
+  const mentionsEmployeePronouns =
+    /\b(her|him|she|he|his|hers)\b/.test(normalized) ||
+    /\b(لها|ليها|عنه|عنها|مرتبها|راتبها|بياناتها|عن الموظفة|عن الموظف|راتبه|مرتبه|رصيد اجازاته|رصيد اجازاتها|اجازاتها|اجازاته)\b/.test(normalized);
+
+  const mentionsTargetResolution =
+    /\b(what\s+do\s+you\s+know\s+about|tell\s+me\s+about|who\s+is|info\s+about|details\s+about|profile\s+of)\b/i.test(normalized) ||
+    /\b(عايز\s+اعرف\s+عن|قولي\s+عن|بيانات\s+الموظف|معلومات\s+عن|مين\s+هو|مين\s+هي)\b/.test(normalized);
+
+  if (userContext?.targetEmployeeName) {
+    const targetParts = userContext.targetEmployeeName
+      .toLowerCase()
+      .split(/\s+/)
+      .filter((p) => p.length >= 3);
+    if (targetParts.some((part) => normalized.includes(part))) {
+      return true;
+    }
   }
 
-  if (
-    normalizedIntent.intent === "company_question" &&
-    normalizedIntent.requiresContext.includes("company")
-  ) {
-    return normalizedIntent;
+  if (userContext?.targetEmployeeId && (mentionsEmployeePronouns || mentionsTargetResolution)) {
+    return true;
   }
 
-  logger.warn(
-    `[Orchestrator] Reinforcing company_question intent for explicit company-context request. ` +
-      `Original intent=${normalizedIntent.intent || "unknown"}`,
-  );
+  if (mentionsEmployeePronouns) {
+    return true;
+  }
 
-  return {
-    ...normalizedIntent,
-    intent: "company_question",
-    requiresContext: [
-      ...new Set([...(normalizedIntent.requiresContext || []), "company"]),
-    ],
-  };
+  return false;
+};
+
+export const reinforceIntentWithDeterministicContext = (message, intent, userContext = {}) => {
+  let normalizedIntent = normalizeIntent(intent);
+
+  if (messageRequestsCompanyContext(message)) {
+    if (
+      normalizedIntent.intent !== "company_question" ||
+      !normalizedIntent.requiresContext.includes("company")
+    ) {
+      logger.warn(
+        `[Orchestrator] Reinforcing company_question intent for explicit company-context request. ` +
+          `Original intent=${normalizedIntent.intent || "unknown"}`,
+      );
+      normalizedIntent = {
+        ...normalizedIntent,
+        intent: "company_question",
+        requiresContext: [
+          ...new Set([...(normalizedIntent.requiresContext || []), "company"]),
+        ],
+      };
+    }
+  }
+
+  if (messageRequestsEmployeeContext(message, userContext)) {
+    if (!normalizedIntent.requiresContext.includes("employee")) {
+      logger.warn(
+        `[Orchestrator] Reinforcing employee context for employee inquiry. ` +
+          `Original intent=${normalizedIntent.intent || "unknown"}`,
+      );
+      const nextIntent = normalizedIntent.intent === "general_conversation" ? "employee_question" : normalizedIntent.intent;
+      normalizedIntent = {
+        ...normalizedIntent,
+        intent: nextIntent,
+        requiresContext: [
+          ...new Set([...(normalizedIntent.requiresContext || []), "employee"]),
+        ],
+      };
+    }
+  }
+
+  return normalizedIntent;
 };
 
 const getRequestedCompanyFields = (message = "") => {
@@ -715,6 +762,12 @@ export const handleChat = async ({
       orchContext.conversationMessages,
     );
 
+    orchContext.intent = reinforceIntentWithDeterministicContext(
+      orchContext.message,
+      orchContext.intent,
+      orchContext.userContext,
+    );
+
     if (orchContext.intent?.intent === "out_of_scope") {
       logger.info(`[Orchestrator] Rejecting out_of_scope request: ${conversationId}`);
       return {
@@ -781,6 +834,26 @@ export const handleChat = async ({
         orchContext.conversationId,
         leaveRequestResult,
       );
+    }
+
+    // Direct return for company_policy and labor_law when skill produced a grounded answer
+    const policyResult = orchContext.capabilityResults?.find(
+      (r) =>
+        (r.name === COMPANY_POLICY_CAPABILITY || r.name === LABOR_LAW_CAPABILITY) &&
+        r.status === "success" &&
+        r.data?.answer,
+    );
+    if (policyResult) {
+      logger.info(
+        `[Orchestrator] Returning direct grounded skill response for ${policyResult.name} on conversation: ${conversationId}`,
+      );
+      return {
+        conversationId: orchContext.conversationId,
+        message: policyResult.data.answer,
+        type: "text",
+        sources: Array.isArray(policyResult.data.sources) ? policyResult.data.sources : [],
+        actions: [],
+      };
     }
 
     // 5. Generate Final Response

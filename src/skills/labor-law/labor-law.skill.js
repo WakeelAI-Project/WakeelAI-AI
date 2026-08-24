@@ -38,7 +38,7 @@ const laborLawSkill = {
         query: message,
         context: {
           knowledgeType: "labor-law",
-          topK: 3,
+          topK: 5,
         },
       });
 

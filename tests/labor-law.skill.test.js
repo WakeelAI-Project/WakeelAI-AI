@@ -53,7 +53,7 @@ describe("LaborLawSkill", () => {
       query: "What is the law?",
       context: {
         knowledgeType: "labor-law",
-        topK: 3,
+        topK: 5,
       }
     });
 
