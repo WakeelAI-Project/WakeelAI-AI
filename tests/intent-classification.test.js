@@ -117,6 +117,91 @@ describe("Orchestrator intent routing (FIX-22)", () => {
     },
   );
 
+  it("uses field_values.capability=employee_context as a deterministic employee-context hint", async () => {
+    mockIntent({ intent: "general_conversation", requiresCapabilities: [], requiresContext: [] });
+    mockFinalAnswer("Employee answer.");
+
+    await handleChat({
+      message: "Nourhan",
+      conversationId: "conv-1",
+      context: {
+        ...baseContext,
+        field_values: { capability: "employee_context" },
+      },
+    });
+
+    expect(mockGatherContextBoundary).toHaveBeenCalledWith(
+      expect.arrayContaining(["employee"]),
+      expect.objectContaining({
+        field_values: expect.objectContaining({ capability: "employee_context" }),
+      }),
+    );
+    expect(mockExecuteCapabilitiesBoundary).toHaveBeenCalledWith([], expect.anything());
+  });
+
+  it("uses field_values.capability=company_policy to route the existing company_policy skill", async () => {
+    mockIntent({ intent: "general_conversation", requiresCapabilities: [], requiresContext: [] });
+    mockFinalAnswer("Policy answer.");
+
+    await handleChat({
+      message: "What about leave?",
+      conversationId: "conv-1",
+      context: {
+        ...baseContext,
+        field_values: { capability: "company_policy" },
+      },
+    });
+
+    expect(mockExecuteCapabilitiesBoundary).toHaveBeenCalledWith(
+      expect.arrayContaining(["company_policy"]),
+      expect.anything(),
+    );
+  });
+
+  it("uses document_generation hints and preserves the selected document_type", async () => {
+    mockIntent({ intent: "general_conversation", requiresCapabilities: [], requiresContext: [] });
+    mockExecuteCapabilitiesBoundary.mockResolvedValueOnce([
+      {
+        capability: "document_generation",
+        status: "success",
+        data: {
+          message: "Document ready.",
+          sources: [],
+          data: {
+            type: "document_generation",
+            status: "missing_fields",
+            missing_fields: [],
+          },
+        },
+      },
+    ]);
+
+    const result = await handleChat({
+      message: "Please prepare it for Nourhan",
+      conversationId: "conv-1",
+      context: {
+        ...baseContext,
+        field_values: {
+          capability: "document_generation",
+          document_type: "Contract",
+        },
+      },
+    });
+
+    expect(mockExecuteCapabilitiesBoundary).toHaveBeenCalledWith(
+      expect.arrayContaining(["document_generation"]),
+      expect.objectContaining({
+        userContext: expect.objectContaining({
+          field_values: expect.objectContaining({
+            capability: "document_generation",
+            document_type: "Contract",
+          }),
+        }),
+      }),
+    );
+    expect(result.message).toBe("Document ready.");
+  });
+
   const shortCircuitCases = [
     {
       name: "document_generation",

@@ -74,6 +74,89 @@ const LEGACY_LEAVE_REQUEST = "leave_request";
 const MAX_HISTORY_CONTEXT_CHARS = 10000;
 const MAX_INTENT_HISTORY_CHARS = 3000;
 
+const STRUCTURED_CAPABILITY_HINTS = Object.freeze({
+  employee_context: {
+    intent: "employee_question",
+    requiresCapabilities: [],
+    requiresContext: ["employee"],
+  },
+  company_context: {
+    intent: "company_question",
+    requiresCapabilities: [],
+    requiresContext: ["company"],
+  },
+  company_policy: {
+    intent: "company_policy_question",
+    requiresCapabilities: [COMPANY_POLICY_CAPABILITY],
+    requiresContext: ["rag"],
+  },
+  labor_law: {
+    intent: "labor_law_question",
+    requiresCapabilities: [LABOR_LAW_CAPABILITY],
+    requiresContext: ["rag"],
+  },
+  calculation: {
+    intent: "calculation",
+    requiresCapabilities: ["calculation"],
+    requiresContext: [],
+  },
+  document_generate: {
+    intent: DOCUMENT_GENERATION_CAPABILITY,
+    requiresCapabilities: [DOCUMENT_GENERATION_CAPABILITY],
+    requiresContext: ["employee"],
+  },
+  document_generation: {
+    intent: DOCUMENT_GENERATION_CAPABILITY,
+    requiresCapabilities: [DOCUMENT_GENERATION_CAPABILITY],
+    requiresContext: ["employee"],
+  },
+});
+
+const normalizeCapabilityHint = (value) =>
+  String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, "_");
+
+const getStructuredCapabilityHint = (userContext = {}) => {
+  const rawCapability =
+    userContext?.field_values?.capability ||
+    userContext?.field_values?.intent ||
+    userContext?.capability ||
+    userContext?.intent;
+  const normalizedCapability = normalizeCapabilityHint(rawCapability);
+  const hint = STRUCTURED_CAPABILITY_HINTS[normalizedCapability];
+
+  if (!hint) return null;
+
+  return {
+    capability: normalizedCapability,
+    ...hint,
+  };
+};
+
+const reinforceIntentWithStructuredCapabilityHint = (
+  intent,
+  userContext = {},
+) => {
+  const hint = getStructuredCapabilityHint(userContext);
+  if (!hint) return intent;
+
+  logger.warn(
+    `[Orchestrator] Applying structured capability hint=${hint.capability}. ` +
+      `Original intent=${intent?.intent || "unknown"}`,
+  );
+
+  return normalizeIntent({
+    ...intent,
+    intent: hint.intent,
+    requiresCapabilities: hint.requiresCapabilities,
+    requiresContext: [
+      ...new Set([...(intent?.requiresContext || []), ...hint.requiresContext]),
+    ],
+  });
+};
+
 const COMPANY_CONTEXT_TERMS = [
   "name",
   "called",
@@ -697,7 +780,10 @@ export const reinforceIntentWithDeterministicContext = (
     }
   }
 
-  return normalizedIntent;
+  return reinforceIntentWithStructuredCapabilityHint(
+    normalizedIntent,
+    userContext,
+  );
 };
 
 const getRequestedCompanyFields = (message = "") => {
