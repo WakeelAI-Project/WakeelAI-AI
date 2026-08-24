@@ -152,4 +152,41 @@ describe("leave intent extraction", () => {
     expect(intent.arguments.start_date).toBeUndefined();
     expect(intent.arguments.end_date).toBeUndefined();
   });
+
+  it("keeps the already-established leave type when a later reply's reason text contains a different type keyword", () => {
+    // Regression: the missing-fields form submits its answers as one
+    // synthesized message, e.g. "Providing requested details:\n...\nReason
+    // / description (reason): sick at 10:50" — the word "sick" inside the
+    // reason value must not overwrite the "Annual" type the user already
+    // stated explicitly earlier in the same workflow.
+    const intent = enrichLeaveIntentWithDeterministicContext(
+      "Providing requested details:\nStart Date (start_date): 2026-11-29\nEnd Date (end_date): 2026-11-30\nReason / description (reason): sick at 10:50",
+      {
+        intent: "general_conversation",
+        requiresCapabilities: [],
+        requiresContext: [],
+        arguments: {},
+      },
+      [
+        {
+          role: "user",
+          content: "I want to make an annual request",
+        },
+        {
+          role: "assistant",
+          content: "I can help with that leave request, but I need a few required fields first.",
+          missing_fields: [
+            { field_name: "start_date", input_type: "date", label: "Start Date", options: [] },
+            { field_name: "end_date", input_type: "date", label: "End Date", options: [] },
+            { field_name: "reason", input_type: "text", label: "Reason / description", options: [] },
+          ],
+        },
+      ],
+      baseDate,
+    );
+
+    expect(intent.arguments.leave_type).toBe("Annual");
+    expect(intent.arguments.start_date).toBe("2026-11-29");
+    expect(intent.arguments.end_date).toBe("2026-11-30");
+  });
 });

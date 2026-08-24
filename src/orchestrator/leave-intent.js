@@ -197,6 +197,15 @@ export function enrichLeaveIntentWithDeterministicContext(
     ...historyArgs,
     ...normalizedIntent.arguments,
     ...currentArgs,
+    // Once a leave type is established earlier in an active workflow, it
+    // must stick. currentArgs is re-extracted from the raw text of every
+    // turn, including the synthesized "Providing requested details: ...
+    // Reason (reason): sick at 10:50" message the missing-fields form
+    // sends — a type keyword inside an unrelated field like the reason
+    // must not silently swap the type the user already committed to. A
+    // deliberate change can only come through the leave_type dropdown
+    // itself (field_values), applied later in dependency-boundaries.js.
+    ...(hasValue(historyArgs.leave_type) ? { leave_type: historyArgs.leave_type } : {}),
   });
 
   // NEVER assume a leave type. If it was not explicitly detected, leave it
