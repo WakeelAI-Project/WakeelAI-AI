@@ -167,6 +167,64 @@ describe("KnowledgeRetrievalService", () => {
     expect(result.sources).toHaveLength(1);
   });
 
+  it("retains global-scope labor-law chunks for every tenant (FIX-22)", async () => {
+    // Labor law is global-scope, not tenant-owned - it must come back identically
+    // regardless of which company's context requests it, unlike company-policy
+    // chunks above which are dropped the moment their companyId doesn't match.
+    const laborLawChunk = {
+      documentId: "labor-law-v1",
+      title: "Egyptian Labor Law",
+      content: "Relevant labor law chunk.",
+      knowledgeType: "labor-law",
+      scope: "global",
+      companyId: null,
+      chunkIndex: 7,
+      metadata: {},
+      score: 0.91,
+    };
+    mockSearchKnowledgeChunksByVector.mockResolvedValue([laborLawChunk]);
+
+    const resultForCompanyA = await retrieveKnowledge({
+      query: "What is the notice period for termination?",
+      context: { knowledgeType: "labor-law", companyId: "company-a" },
+    });
+    const resultForCompanyB = await retrieveKnowledge({
+      query: "What is the notice period for termination?",
+      context: { knowledgeType: "labor-law", companyId: "company-b" },
+    });
+
+    expect(resultForCompanyA.chunks).toHaveLength(1);
+    expect(resultForCompanyA.chunks[0].scope).toBe("global");
+    expect(resultForCompanyB.chunks).toHaveLength(1);
+    expect(resultForCompanyB.chunks[0].scope).toBe("global");
+  });
+
+  it("drops a mis-scoped company-policy chunk masquerading as global, even under a labor-law request", async () => {
+    // Belt-and-braces: a chunk with the right knowledgeType but the wrong scope
+    // (or vice versa) must never slip through just because one field matched.
+    mockSearchKnowledgeChunksByVector.mockResolvedValueOnce([
+      {
+        documentId: "policy-a",
+        title: "Company A Policy mislabeled as labor-law",
+        content: "This should never be returned for a labor-law request.",
+        knowledgeType: "labor-law",
+        scope: "company", // wrong scope for labor-law
+        companyId: "company-a",
+        chunkIndex: 0,
+        metadata: {},
+        score: 0.95,
+      },
+    ]);
+
+    const result = await retrieveKnowledge({
+      query: "What is the notice period for termination?",
+      context: { knowledgeType: "labor-law", companyId: "company-a" },
+    });
+
+    expect(result.chunks).toHaveLength(0);
+    expect(result.sources).toHaveLength(0);
+  });
+
   it("fails safely when company-policy retrieval has no companyId", async () => {
     await expect(retrieveKnowledge({
       query: "What is my policy?",

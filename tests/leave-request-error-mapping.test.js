@@ -6,6 +6,7 @@ jest.unstable_mockModule("../src/integrations/wakeel/leave-api.js", () => ({
   createLeaveDraft: mockCreateLeaveDraft,
   submitLeaveDraft: jest.fn(),
   cancelLeaveDraft: jest.fn(),
+  getLatestLeaveDraft: jest.fn().mockResolvedValue(null),
 }));
 
 const mockGetEmployeeContext = jest.fn();

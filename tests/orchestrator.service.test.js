@@ -26,7 +26,8 @@ jest.unstable_mockModule("../src/llm/iti-adapter.js", () => ({
 
 const mockGenerateDocument = jest.fn();
 jest.unstable_mockModule("../src/services/document-generation.service.js", () => ({
-  generateDocument: mockGenerateDocument
+  generateDocument: mockGenerateDocument,
+  extractFieldValuesFromMessage: jest.fn().mockReturnValue({}),
 }));
 
 const mockHandleCreateLeaveDraft = jest.fn();

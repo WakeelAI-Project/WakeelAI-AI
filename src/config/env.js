@@ -54,11 +54,47 @@ const envSchema = z.object({
     .min(1, "INITIAL_LABOR_LAW_SOURCE_PATH is required"),
 });
 
+/**
+ * Credentials the service cannot do anything useful without. A missing OR blank
+ * value for any of these is a hard startup failure: we would otherwise boot and
+ * fail later with confusing 401s / connection errors at the first real request.
+ */
+const REQUIRED_CREDENTIAL_KEYS = Object.freeze([
+  "WAKEEL_INTERNAL_API_KEY",
+  "MONGODB_URI",
+  "LLM_API_KEY",
+]);
+
+const formatIssues = (error) =>
+  error.issues
+    .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+    .join("\n");
+
 const parsedEnv = envSchema.safeParse(process.env);
 
+if (process.env.NODE_ENV !== "test") {
+  const blankCredentials = REQUIRED_CREDENTIAL_KEYS.filter(
+    (key) => String(process.env[key] ?? "").trim().length === 0,
+  );
+
+  if (blankCredentials.length > 0) {
+    console.error(
+      "❌ Missing required credentials. The Wakeel AI service cannot start.\n" +
+        blankCredentials
+          .map((key) => `  - ${key} is missing or empty`)
+          .join("\n") +
+        "\nCopy .env.example to .env and set a real value for each key listed above.",
+    );
+    process.exit(1);
+  }
+}
+
 if (!parsedEnv.success && process.env.NODE_ENV !== "test") {
-  console.error("❌ Invalid environment configuration:");
-  console.error(parsedEnv.error.format());
+  console.error(
+    "❌ Invalid environment configuration. The Wakeel AI service cannot start.\n" +
+      formatIssues(parsedEnv.error) +
+      "\nSee .env.example for the full list of required keys.",
+  );
   process.exit(1);
 }
 

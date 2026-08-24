@@ -58,6 +58,60 @@ describe("Configuration Validation", () => {
     mockConsoleError.mockRestore();
   });
 
+  it.each([
+    ["WAKEEL_INTERNAL_API_KEY"],
+    ["MONGODB_URI"],
+    ["LLM_API_KEY"],
+  ])("fails fast and names %s when that credential is missing", async (key) => {
+    jest.unstable_mockModule("dotenv", () => ({
+      default: { config: jest.fn() },
+    }));
+
+    const env = validEnv();
+    delete env[key];
+    process.env = env;
+
+    const mockExit = jest.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`Process exited with code ${code}`);
+    });
+    const mockConsoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(import("../src/config/env.js")).rejects.toThrow(
+      "Process exited with code 1",
+    );
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining(`${key} is missing or empty`),
+    );
+
+    mockExit.mockRestore();
+    mockConsoleError.mockRestore();
+  });
+
+  it("fails fast when a required credential is present but blank", async () => {
+    jest.unstable_mockModule("dotenv", () => ({
+      default: { config: jest.fn() },
+    }));
+
+    process.env = validEnv({ LLM_API_KEY: "   " });
+
+    const mockExit = jest.spyOn(process, "exit").mockImplementation((code) => {
+      throw new Error(`Process exited with code ${code}`);
+    });
+    const mockConsoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(import("../src/config/env.js")).rejects.toThrow(
+      "Process exited with code 1",
+    );
+
+    expect(mockConsoleError).toHaveBeenCalledWith(
+      expect.stringContaining("LLM_API_KEY is missing or empty"),
+    );
+
+    mockExit.mockRestore();
+    mockConsoleError.mockRestore();
+  });
+
   it("fails in production when WAKEEL_API_BASE_URL points to localhost", async () => {
     jest.unstable_mockModule("dotenv", () => ({
       default: {

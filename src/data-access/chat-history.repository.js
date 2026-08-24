@@ -14,9 +14,24 @@ import { Message } from "./message.model.js";
  * @returns {Promise<Object>}
  */
 export async function upsertConversation({ conversationId, userId, companyId, role, targetEmployeeId, targetEmployeeName }) {
+  const update = {
+    $setOnInsert: { conversationId, userId, companyId, role },
+  };
+
+  // FIX-18: targetEmployeeId used to sit under $setOnInsert, freezing it at whichever
+  // employee the conversation happened to start with. Moving it to $set lets a later
+  // turn re-target the same conversation to a different employee - but only when a
+  // real value is supplied, so a turn with no target never wipes out one already set.
+  const set = {};
+  if (targetEmployeeId != null) set.targetEmployeeId = targetEmployeeId;
+  if (targetEmployeeName != null) set.targetEmployeeName = targetEmployeeName;
+  if (Object.keys(set).length > 0) {
+    update.$set = set;
+  }
+
   return await Conversation.findOneAndUpdate(
     { conversationId, userId, companyId },
-    { $setOnInsert: { conversationId, userId, companyId, role, targetEmployeeId, targetEmployeeName } },
+    update,
     { upsert: true, returnDocument: 'after', lean: true }
   );
 }

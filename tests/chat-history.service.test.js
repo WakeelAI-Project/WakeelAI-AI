@@ -187,6 +187,8 @@ describe("ChatHistoryService", () => {
           role: "user",
           content: "Question",
           missing_fields: [],
+          // actions are surfaced so leave-draft ids can be resolved from history
+          actions: [],
           result_card: null,
           createdAt: new Date("2030-01-01T00:00:00Z"),
         },
@@ -194,6 +196,7 @@ describe("ChatHistoryService", () => {
           role: "assistant",
           content: "Answer",
           missing_fields: [],
+          actions: [],
           result_card: null,
           createdAt: new Date("2030-01-01T00:00:01Z"),
         },

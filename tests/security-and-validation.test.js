@@ -22,6 +22,15 @@ jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
   handleChat: mockHandleChat,
 }));
 
+// The leave role-gate tests below execute the real tools. A non-gated role now
+// falls through to the backend latest-draft lookup, so the outbound client is
+// mocked to keep these tests offline.
+jest.unstable_mockModule("../src/integrations/wakeel/wakeel-client.js", () => ({
+  wakeelFetch: jest.fn().mockRejectedValue(
+    Object.assign(new Error("no draft"), { status: 404 }),
+  ),
+}));
+
 jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
   ensureConversation: jest.fn().mockResolvedValue(),
   getRecentHistoryForContext: jest.fn().mockResolvedValue([]),

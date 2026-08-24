@@ -17,6 +17,7 @@ const mockPersistUserMessage = jest.fn().mockResolvedValue();
 const mockPersistAssistantMessage = jest.fn().mockResolvedValue();
 const mockGetHistory = jest.fn().mockResolvedValue({});
 const mockGetUserConversations = jest.fn().mockResolvedValue({});
+const mockDeleteConversation = jest.fn().mockResolvedValue();
 
 // We mock orchestrator.service.js because it now contains real LangChain/LLM logic
 jest.unstable_mockModule("../src/orchestrator/orchestrator.service.js", () => ({
@@ -30,7 +31,8 @@ jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
   persistUserMessage: mockPersistUserMessage,
   persistAssistantMessage: mockPersistAssistantMessage,
   getHistory: mockGetHistory,
-  getUserConversations: mockGetUserConversations
+  getUserConversations: mockGetUserConversations,
+  deleteConversation: mockDeleteConversation
 }));
 
 const request = (await import("supertest")).default;
@@ -239,5 +241,84 @@ describe("GET /api/ai/chat/conversations", () => {
       .get("/api/ai/chat/conversations")
       .set({ "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY });
     expect(response.status).toBe(400);
+  });
+});
+
+describe("GET /api/ai/chat/history", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const validHeaders = {
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
+    "X-User-Id": "user-456",
+    "X-Company-Id": "company-789",
+    "X-Role": "employee",
+  };
+
+  it("returns 200 with the requested conversation's history", async () => {
+    const expectedResponse = { conversationId: "conv-1", messages: [], pagination: { total: 0 } };
+    mockGetHistory.mockResolvedValue(expectedResponse);
+
+    const response = await request(app)
+      .get("/api/ai/chat/history?conversationId=conv-1")
+      .set(validHeaders);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expectedResponse);
+  });
+
+  it("returns 401 if internal API key is missing", async () => {
+    const response = await request(app).get("/api/ai/chat/history?conversationId=conv-1");
+    expect(response.status).toBe(401);
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 if M2M identity headers are missing", async () => {
+    const response = await request(app)
+      .get("/api/ai/chat/history?conversationId=conv-1")
+      .set({ "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY });
+    expect(response.status).toBe(400);
+    expect(mockGetHistory).not.toHaveBeenCalled();
+  });
+});
+
+describe("DELETE /api/ai/chat/conversations/:conversationId", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  const validHeaders = {
+    "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY,
+    "X-User-Id": "user-456",
+    "X-Company-Id": "company-789",
+    "X-Role": "employee",
+  };
+
+  it("returns 200 and deletes the conversation", async () => {
+    const response = await request(app)
+      .delete("/api/ai/chat/conversations/conv-1")
+      .set(validHeaders);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ success: true });
+    expect(mockDeleteConversation).toHaveBeenCalledWith(
+      "conv-1",
+      expect.objectContaining({ userId: "user-456", companyId: "company-789" })
+    );
+  });
+
+  it("returns 401 if internal API key is missing", async () => {
+    const response = await request(app).delete("/api/ai/chat/conversations/conv-1");
+    expect(response.status).toBe(401);
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
+  });
+
+  it("returns 400 if M2M identity headers are missing", async () => {
+    const response = await request(app)
+      .delete("/api/ai/chat/conversations/conv-1")
+      .set({ "X-Internal-API-Key": config.WAKEEL_INTERNAL_API_KEY });
+    expect(response.status).toBe(400);
+    expect(mockDeleteConversation).not.toHaveBeenCalled();
   });
 });
