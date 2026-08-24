@@ -47,6 +47,7 @@ const companyPolicySkill = {
         context: {
           knowledgeType: "company-policy",
           companyId: context.companyId,
+          topK: 3,
         },
       });
 
@@ -67,12 +68,21 @@ const companyPolicySkill = {
         };
       }
 
+      // Deduplicate and compact chunks for token efficiency
+      const seen = new Set();
+      const uniqueChunks = chunks.filter((c) => {
+        const key = `${c.title}::${c.content?.slice(0, 80)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       logger.info(
-        `[CompanyPolicySkill] Retrieved ${chunks.length} chunks. Prompting LLM.`,
+        `[CompanyPolicySkill] Retrieved ${chunks.length} chunks (${uniqueChunks.length} unique). Prompting LLM.`,
       );
 
-      const formattedContext = chunks
-        .map((c) => `[Source: ${c.title}]\n${c.content}`)
+      const formattedContext = uniqueChunks
+        .map((c) => `[Source: ${c.title}]\n${c.content?.trim().replace(/\n{3,}/g, "\n\n")}`)
         .join("\n\n");
 
       const prompt = `You are an HR assistant for the company.

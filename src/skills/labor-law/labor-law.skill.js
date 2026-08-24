@@ -38,6 +38,7 @@ const laborLawSkill = {
         query: message,
         context: {
           knowledgeType: "labor-law",
+          topK: 3,
         },
       });
 
@@ -56,12 +57,21 @@ const laborLawSkill = {
         };
       }
 
+      // Deduplicate and compact chunks for token efficiency
+      const seen = new Set();
+      const uniqueChunks = chunks.filter((c) => {
+        const key = `${c.title}::${c.content?.slice(0, 80)}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+
       logger.info(
-        `[LaborLawSkill] Retrieved ${chunks.length} chunks. Prompting LLM.`,
+        `[LaborLawSkill] Retrieved ${chunks.length} chunks (${uniqueChunks.length} unique). Prompting LLM.`,
       );
 
-      const formattedContext = chunks
-        .map((c) => `[Source: ${c.title}]\n${c.content}`)
+      const formattedContext = uniqueChunks
+        .map((c) => `[Source: ${c.title}]\n${c.content?.trim().replace(/\n{3,}/g, "\n\n")}`)
         .join("\n\n");
 
       const prompt = `You are a legal assistant specialized EXCLUSIVELY in EGYPTIAN LABOR LAW (Law No. 12 of 2003 and its amendments).

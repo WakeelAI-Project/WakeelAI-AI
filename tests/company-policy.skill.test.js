@@ -53,7 +53,8 @@ describe("CompanyPolicySkill", () => {
       query: "What is remote work policy?",
       context: {
         knowledgeType: "company-policy",
-        companyId: "c123" // Verifies strict tenant isolation
+        companyId: "c123", // Verifies strict tenant isolation
+        topK: 3,
       }
     });
 

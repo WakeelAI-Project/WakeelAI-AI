@@ -52,50 +52,97 @@ export class GroqLanguageModel {
     };
 
     const url = `${this.baseURL.replace(/\/$/, "")}/chat/completions`;
+    const maxRetries = 3;
+    let attempt = 0;
 
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errText = await response.text().catch(() => "");
-        logger.error("[GroqLanguageModel] Gateway HTTP error", {
-          status: response.status,
-          url,
-          model: this.modelName,
-          provider: this.providerName,
+    while (attempt <= maxRetries) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(payload),
         });
-        throw new Error(`Groq API Error: ${response.status} - ${errText}`);
-      }
 
-      const data = await response.json();
-      const content = data?.choices?.[0]?.message?.content;
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          const status = response.status;
 
-      if (this._schema) {
-        if (typeof content !== "string" || !content.trim()) {
-          throw new Error(
-            "Groq structured output response did not include text content.",
-          );
+          logger.error("[GroqLanguageModel] Gateway HTTP error", {
+            status,
+            url,
+            model: this.modelName,
+            provider: this.providerName,
+            attempt,
+          });
+
+          if (status === 413) {
+            const err = new Error(`Groq Payload Too Large: ${status} - ${errText}`);
+            err.code = "PAYLOAD_TOO_LARGE";
+            err.status = 413;
+            throw err;
+          }
+
+          const isRetryable = status === 429 || (status >= 500 && status <= 504);
+          if (!isRetryable || attempt >= maxRetries) {
+            const err = new Error(`Groq API Error: ${status} - ${errText}`);
+            err.code = status === 429 ? "RATE_LIMIT_EXCEEDED" : "LLM_PROVIDER_ERROR";
+            err.status = status;
+            throw err;
+          }
+
+          attempt += 1;
+          const retryAfterHeader = response.headers?.get?.("retry-after") || response.headers?.get?.("Retry-After");
+          let retryAfterMs = null;
+          if (retryAfterHeader) {
+            const sec = parseFloat(retryAfterHeader);
+            if (!Number.isNaN(sec) && sec > 0) retryAfterMs = sec * 1000;
+          }
+
+          const backoffDelay = Math.min(500 * Math.pow(2, attempt - 1), 4000) + Math.random() * 200;
+          const delayMs = Math.min(retryAfterMs ?? backoffDelay, 5000);
+
+          logger.warn(`[GroqLanguageModel] Retry ${attempt}/${maxRetries} after ${Math.round(delayMs)}ms due to HTTP ${status}`);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          continue;
         }
-        return this._parseStructured(content);
-      }
 
-      return new AIMessage(content || "");
-    } catch (error) {
-      logger.error("[GroqLanguageModel] Request failed", {
-        provider: this.providerName,
-        url,
-        model: this.modelName,
-        errorName: error.name,
-        errorMessage: error.message,
-      });
-      throw error;
+        const data = await response.json();
+        const content = data?.choices?.[0]?.message?.content;
+
+        if (this._schema) {
+          if (typeof content !== "string" || !content.trim()) {
+            throw new Error(
+              "Groq structured output response did not include text content.",
+            );
+          }
+          return this._parseStructured(content);
+        }
+
+        return new AIMessage(content || "");
+      } catch (error) {
+        if (error.code === "PAYLOAD_TOO_LARGE" || error.code === "RATE_LIMIT_EXCEEDED" || attempt >= maxRetries) {
+          logger.error("[GroqLanguageModel] Request failed fatally", {
+            provider: this.providerName,
+            url,
+            model: this.modelName,
+            errorName: error.name,
+            errorMessage: error.message,
+          });
+          throw error;
+        }
+
+        attempt += 1;
+        if (attempt > maxRetries) {
+          throw error;
+        }
+
+        const delayMs = Math.min(500 * Math.pow(2, attempt - 1), 4000) + Math.random() * 200;
+        logger.warn(`[GroqLanguageModel] Network error on attempt ${attempt}/${maxRetries}, retrying in ${Math.round(delayMs)}ms: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
     }
   }
 

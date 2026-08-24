@@ -63,8 +63,8 @@ const COMPANY_POLICY_CAPABILITY = "company_policy";
 const LABOR_LAW_CAPABILITY = "labor_law";
 const LEGACY_LEAVE_REQUEST_CAPABILITY = "leave_request_tool";
 const LEGACY_LEAVE_REQUEST = "leave_request";
-const MAX_HISTORY_CONTEXT_CHARS = 18000;
-const MAX_INTENT_HISTORY_CHARS = 4000;
+const MAX_HISTORY_CONTEXT_CHARS = 3500;
+const MAX_INTENT_HISTORY_CHARS = 1500;
 
 const COMPANY_CONTEXT_TERMS = [
   "name",
@@ -239,74 +239,93 @@ const buildFinalMessages = ({
   intent,
   gatheredData,
   capabilityResults,
-}) => [
-  {
-    role: "system",
-    content: `You are Wakeel AI, a helpful AI assistant.
+}) => {
+  const sections = [
+    `You are Wakeel AI, a helpful AI assistant.
 Answer the current user message using the prior conversation messages plus the gathered data and capability results below.
 If the current user asks to summarize, translate, shorten, explain, or continue prior content, apply the request to the relevant previous assistant response.
 Do not claim there is no text to summarize when the prior messages contain relevant assistant content.
-If capabilities return specific data, use it when it is relevant, but do not let an irrelevant capability result override a clear request about the previous assistant answer.
+If capabilities return specific data, use it when it is relevant, but do not let an irrelevant capability result override a clear request about the previous assistant answer.`
+  ];
 
-Company context rules:
-- Gathered Data Context is trusted runtime data from the authenticated company context service.
+  // Company context rules - dynamically added only when company context was gathered or attempted
+  if (gatheredData?.company && !gatheredData.company.error) {
+    sections.push(`Company context rules:
+- Gathered Data Context contains trusted runtime data from the authenticated company context service for ${gatheredData.company.companyName || "the user's company"}.
 - If gatheredData.company.companyName exists and the user asks for the company name, answer with that exact value.
 - If gatheredData.company.industry exists and the user asks for the industry, answer with that exact value.
 - If gatheredData.company.workingHours exists and the user asks for working hours, answer with that exact value.
 - Do not ask the user to provide company details that already exist in gatheredData.company.
-- Do not invent a company name or substitute company-policy/RAG content for company context.
-- If gatheredData.company.error exists, say the company context could not be retrieved right now and do not fabricate the value.
+- Do not invent a company name or substitute company-policy/RAG content for company context.`);
+  } else if (gatheredData?.company?.error) {
+    sections.push(`Company context rules:
+- Company context could not be retrieved (${gatheredData.company.error.message || "service error"}). Say the company context could not be retrieved right now and do not fabricate the value.`);
+  }
 
-Employee name preservation rules:
+  // Employee context rules - dynamically added only when employee context was gathered or attempted
+  if (gatheredData?.employee && !gatheredData.employee.error) {
+    sections.push(`Employee context & name preservation rules:
 - CRITICAL: Employee names in gatheredData.employee.full_name are identity data and must NEVER be transliterated, translated, or altered.
 - When responding in Arabic about an employee, use the EXACT name from gatheredData.employee.full_name without modification.
 - Do NOT attempt to convert Latin names like "assem" into Arabic equivalents.
-- Do NOT transliterate names like "assem" into incorrect forms like "اسيم".
 - If the name in gatheredData is "assem", write "assem" in your response, not any Arabic version.
 - Employee identity must remain unchanged regardless of response language.
 
-  PRIVACY & DATA PROTECTION RULES:
-  - NEVER expose the raw employee record_id (UUID) or any internal database IDs to the user. You can mention their name, job details, and employment status, but keep the underlying ID completely hidden.
+PRIVACY & DATA PROTECTION RULES:
+- NEVER expose the raw employee record_id (UUID) or any internal database IDs to the user. You can mention their name, job details, and employment status, but keep the underlying ID completely hidden.
 - Only translate surrounding context (job titles, actions), never the employee's name itself.
-
-JURISDICTION & LEGAL STRICTNESS (MANDATORY):
-- You operate EXCLUSIVELY under EGYPTIAN LABOR LAW (Law No. 12 of 2003 and its amendments).
-- You are STRICTLY FORBIDDEN from citing, applying, or referencing Saudi Labor Law, GCC/Gulf law, UAE law, or ANY non-Egyptian jurisdiction. Never invent article numbers.
-- If asked about another country's law, state that Wakeel AI only advises on Egyptian Labor Law.
+- Leave balances: If sick or unpaid leave is marked as is_uncapped = true, clarify that this leave type has no day cap rather than reporting 0 days remaining.
 
 END-OF-SERVICE / GRATUITY CALCULATION (Egyptian rule):
 - Requires gatheredData.employee.hire_date and gatheredData.employee.salary. If either is missing, ask the user for it — do NOT guess.
 - Compute completed years of service = from hire_date to today.
 - Gratuity = (0.5 month salary) x (each of the first 5 years) + (1 month salary) x (each year beyond 5).
   Example: 8 years at 10,000 EGP/month => (0.5 x 10000 x 5) + (1 x 10000 x 3) = 25,000 + 30,000 = 55,000 EGP.
-- Always show the year breakdown and use the EXACT salary and hire_date from gatheredData.employee. Never fabricate figures.
+- Always show the year breakdown and use the EXACT salary and hire_date from gatheredData.employee. Never fabricate figures.`);
+  } else if (gatheredData?.employee?.error) {
+    sections.push(`Employee context rules:
+- Employee profile retrieval failed (${gatheredData.employee.error.message || "service error"}). State clearly that employee details could not be retrieved right now. Do not fabricate salary, hire date, or profile information.`);
+  }
 
-Detected Intent: ${intent?.intent || "unknown"}
+  sections.push(`JURISDICTION & LEGAL STRICTNESS (MANDATORY):
+- You operate EXCLUSIVELY under EGYPTIAN LABOR LAW (Law No. 12 of 2003 and its amendments).
+- You are STRICTLY FORBIDDEN from citing, applying, or referencing Saudi Labor Law, GCC/Gulf law, UAE law, or ANY non-Egyptian jurisdiction. Never invent article numbers.
+- If asked about another country's law, state that Wakeel AI only advises on Egyptian Labor Law.`);
 
-Gathered Data Context:
-${JSON.stringify(gatheredData || {}, null, 2)}
+  sections.push(`Detected Intent: ${intent?.intent || "unknown"}`);
 
-Capability Execution Results:
-${JSON.stringify(capabilityResults || [], null, 2)}
+  if (gatheredData && Object.keys(gatheredData).length > 0) {
+    sections.push(`Gathered Data Context:\n${JSON.stringify(gatheredData, null, 2)}`);
+  }
 
-RESPONSE FORMATTING RULES (MANDATORY):
+  if (capabilityResults && capabilityResults.length > 0) {
+    sections.push(`Capability Execution Results:\n${JSON.stringify(capabilityResults, null, 2)}`);
+  }
+
+  sections.push(`RESPONSE FORMATTING RULES (MANDATORY):
 - Use standard Markdown with ASCII asterisks only: **bold** for emphasis, *italic* for light emphasis.
 - Do NOT use Unicode asterisk characters (∗ ＊ ﹡ ⁎ ٭) anywhere in your response.
 - For mathematical calculations and results, format them as plain Markdown text with bold emphasis where needed.
   Example: مكافأة نهاية الخدمة = 0 × (0.5 × 600) = **0 جنيه**
 - Do NOT wrap entire calculation lines, Arabic sentences, or bold text inside LaTeX math delimiters \\(...\\) or \\[...\\].
 - Only use LaTeX math delimiters for pure mathematical expressions that contain no Arabic text, no markdown bold, and no plain-text labels.
-- Tables, lists, headings, and code blocks follow standard GitHub Markdown syntax.`,
-  },
-  ...normalizeConversationMessages(
-    conversationMessages,
-    MAX_HISTORY_CONTEXT_CHARS,
-  ),
-  {
-    role: "user",
-    content: message,
-  },
-];
+- Tables, lists, headings, and code blocks follow standard GitHub Markdown syntax.`);
+
+  return [
+    {
+      role: "system",
+      content: sections.join("\n\n"),
+    },
+    ...normalizeConversationMessages(
+      conversationMessages,
+      MAX_HISTORY_CONTEXT_CHARS,
+    ),
+    {
+      role: "user",
+      content: message,
+    },
+  ];
+};
 
 const normalizeIntent = (intent) => {
   const requiresCapabilities = Array.isArray(intent?.requiresCapabilities)
@@ -349,13 +368,6 @@ const normalizeIntent = (intent) => {
     requiresCapabilities.push(CANCEL_LEAVE_CAPABILITY);
   }
 
-  // The intent-detection LLM is not reliably told to name these capabilities
-  // (INTENT_SYSTEM_PROMPT's examples only ever show requiresContext, never
-  // requiresCapabilities), so — like the leave-draft/document-generation
-  // intents above — deterministically wire the matching skill in whenever
-  // the intent itself already tells us which one is needed. Without this,
-  // company_policy_question/labor_law_question could detect correctly but
-  // never actually execute the retrieval skill that fetches the answer.
   if (
     intent?.intent === "company_policy_question" &&
     !requiresCapabilities.includes(COMPANY_POLICY_CAPABILITY)
@@ -370,6 +382,13 @@ const normalizeIntent = (intent) => {
     requiresCapabilities.push(LABOR_LAW_CAPABILITY);
   }
 
+  if (
+    intent?.intent === "calculation" &&
+    !requiresCapabilities.includes("calculation")
+  ) {
+    requiresCapabilities.push("calculation");
+  }
+
   const requiresContext = Array.isArray(intent?.requiresContext)
     ? intent.requiresContext
     : [];
@@ -379,6 +398,13 @@ const normalizeIntent = (intent) => {
     !requiresContext.includes("company")
   ) {
     requiresContext.push("company");
+  }
+
+  if (
+    intent?.intent === "employee_question" &&
+    !requiresContext.includes("employee")
+  ) {
+    requiresContext.push("employee");
   }
 
   return {
@@ -767,15 +793,18 @@ export const handleChat = async ({
     });
     const finalSystemPrompt =
       finalMessages.find((item) => item.role === "system")?.content || "";
+    const hasActualCompany = Boolean(
+      orchContext.gatheredData?.company &&
+      !orchContext.gatheredData.company.error &&
+      orchContext.gatheredData.company.companyName &&
+      finalSystemPrompt.includes(
+        orchContext.gatheredData.company.companyName,
+      ),
+    );
     logger.info(
       `[Orchestrator] Final LLM prompt company context check. ` +
         `contains companyName=${finalSystemPrompt.includes("companyName")} ` +
-        `contains actual companyName=${Boolean(
-          orchContext.gatheredData?.company?.companyName &&
-          finalSystemPrompt.includes(
-            orchContext.gatheredData.company.companyName,
-          ),
-        )}`,
+        `contains actual companyName=${hasActualCompany}`,
     );
 
     if (
