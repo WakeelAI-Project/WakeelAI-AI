@@ -207,6 +207,23 @@ const createMissingFieldsResult = (missingFields) => ({
   sources: [],
 });
 
+/**
+ * An overlapping-dates rejection is recoverable, not a dead end: re-prompt
+ * for start/end date exactly like a fresh missing-fields turn so the same
+ * create-leave-draft flow continues naturally. Without this, the
+ * conversation was left with no result_card/action to anchor a follow-up
+ * on, so a plain "okay" or "cancel this request" had nothing to resolve
+ * against and fell through to "no draft found" instead of the user's
+ * actual next step: different dates.
+ */
+const createOverlapRetryResult = (values, mappedError) => ({
+  success: true,
+  status: "missing_fields",
+  message: `${mappedError.message} Would you like to try different dates for your ${values.leave_type.toLowerCase()} leave request?`,
+  missing_fields: [missingFieldFor("start_date"), missingFieldFor("end_date")],
+  sources: [],
+});
+
 const buildLeaveResultCard = ({ values, createResponse, attachmentUploaded }) => ResultCardSchema.parse({
   type: "leave_draft",
   request_id: createResponse.request_id,
@@ -269,7 +286,11 @@ export async function handleCreateLeaveDraft(aiContext, args, dependencies = {})
         attachment_url: hasValue(values.attachment_url) ? values.attachment_url : undefined,
       });
     } catch (error) {
-      return createErrorResult(mapBackendError(error));
+      const mappedError = mapBackendError(error);
+      if (mappedError.code === "overlapping_leave_request") {
+        return createOverlapRetryResult(values, mappedError);
+      }
+      return createErrorResult(mappedError);
     }
 
     const resultCard = buildLeaveResultCard({

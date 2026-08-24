@@ -34,13 +34,13 @@ describe("Leave Request Service - Backend Error Mapping", () => {
     mockGetEmployeeContext.mockReset();
   });
 
-  it("maps overlapping_leave_request error to user-friendly message", async () => {
+  it("re-prompts for different dates on overlapping_leave_request instead of a dead-end error", async () => {
     const backendError = new Error("An overlapping leave request already exists.");
     backendError.code = "BACKEND_ERROR";
     backendError.status = 409;
     backendError.backendError = "overlapping_leave_request";
     backendError.backendMessage = "An overlapping leave request already exists.";
-    
+
     mockCreateLeaveDraft.mockRejectedValueOnce(backendError);
 
     const result = await handleCreateLeaveDraft(aiContext, {
@@ -49,11 +49,17 @@ describe("Leave Request Service - Backend Error Mapping", () => {
       end_date: futureDate2,
     });
 
-    expect(result.success).toBe(false);
-    expect(result.status).toBe("error");
-    expect(result.error.code).toBe("overlapping_leave_request");
-    expect(result.error.status).toBe(409);
-    expect(result.message).toBe("You already have a leave request that overlaps with these dates.");
+    // Recoverable, not a dead end: same shape as a fresh missing-fields
+    // turn, so the client re-renders the date pickers and the conversation
+    // has a result to anchor the user's next reply on — instead of leaving
+    // no result_card/action for a later "okay" or "cancel" to resolve
+    // against.
+    expect(result.success).toBe(true);
+    expect(result.status).toBe("missing_fields");
+    expect(result.message).toBe(
+      "You already have a leave request that overlaps with these dates. Would you like to try different dates for your annual leave request?"
+    );
+    expect(result.missing_fields.map((field) => field.field_name)).toEqual(["start_date", "end_date"]);
   });
 
   it("maps insufficient_leave_balance error to user-friendly message", async () => {
