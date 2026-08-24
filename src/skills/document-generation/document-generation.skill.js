@@ -1,6 +1,25 @@
 import { z } from "zod";
 import { logger } from "../../shared/logger.js";
-import { generateDocument } from "../../services/document-generation.service.js";
+import { generateDocument, extractFieldValuesFromMessage } from "../../services/document-generation.service.js";
+import { searchEmployeesByNameApi } from "../../integrations/wakeel/employee-api.js";
+
+const NO_TARGET_EMPLOYEE_MESSAGE =
+  "To generate a document I need to know which employee it's for. Open the employee's page and use 'Ask AI' there, or tell me the employee's name.";
+
+const missingTargetEmployeeResult = (message = NO_TARGET_EMPLOYEE_MESSAGE) => ({
+  success: false,
+  data: {
+    type: "document_generation",
+    status: "error",
+    error: {
+      code: "MISSING_TARGET_EMPLOYEE",
+      status: 400,
+    },
+  },
+  message,
+  sources: [],
+  action: null,
+});
 
 export const documentGenerationInputSchema = z.object({
   message: z.string().describe("The user's document generation request"),
@@ -41,20 +60,38 @@ const documentGenerationSkill = {
     }
 
     if (!context.targetEmployeeId) {
-      return {
-        success: false,
-        data: {
-          type: "document_generation",
-          status: "error",
-          error: {
-            code: "MISSING_TARGET_EMPLOYEE",
-            status: 400,
-          },
-        },
-        message: "To generate a document, please open 'Ask AI' directly from the specific employee's profile page.",
-        sources: [],
-        action: null,
-      };
+      // FIX-17: no employee scoped yet - e.g. asked from the general Assistant page
+      // rather than an employee's own page. Try to resolve one from a name the user
+      // typed in the same message before giving up with a friendly instruction.
+      const { employee_name: typedName } = extractFieldValuesFromMessage(message, ["employee_name"]);
+
+      if (!typedName) {
+        return missingTargetEmployeeResult();
+      }
+
+      let matches;
+      try {
+        const searchResult = await searchEmployeesByNameApi(context, typedName);
+        matches = searchResult?.employees || [];
+      } catch (error) {
+        logger.error(`[DocumentGenerationSkill] Employee name lookup failed: ${error.message}`);
+        return missingTargetEmployeeResult();
+      }
+
+      if (matches.length === 0) {
+        return missingTargetEmployeeResult(
+          `I couldn't find an employee named "${typedName}". Please check the spelling, or open their profile page and use 'Ask AI' there.`
+        );
+      }
+
+      if (matches.length > 1) {
+        const names = matches.map((match) => match.full_name).join(", ");
+        return missingTargetEmployeeResult(
+          `I found more than one employee matching "${typedName}": ${names}. Please use their full name, or open their profile page and use 'Ask AI' there.`
+        );
+      }
+
+      context = { ...context, targetEmployeeId: matches[0].employee_id };
     }
 
     const mergedFieldValues = {

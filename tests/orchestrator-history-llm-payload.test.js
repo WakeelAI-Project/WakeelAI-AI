@@ -21,6 +21,7 @@ jest.unstable_mockModule("../src/config/env.js", () => ({
 
 jest.unstable_mockModule("../src/services/document-generation.service.js", () => ({
   generateDocument: jest.fn(),
+  extractFieldValuesFromMessage: jest.fn().mockReturnValue({}),
 }));
 
 jest.unstable_mockModule("../src/services/leave-request.service.js", () => ({
