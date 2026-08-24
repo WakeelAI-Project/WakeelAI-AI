@@ -10,6 +10,14 @@ import {
   gatherContextBoundary,
   executeCapabilitiesBoundary,
 } from "./dependency-boundaries.js";
+import {
+  normalizeArabic,
+  containsArabic,
+} from "../shared/arabic-utils.js";
+import {
+  resolveTargetEmployee,
+  hasEmployeePronounOrReference,
+} from "./employee-resolver.js";
 
 // Initialize LLM for intent and final response
 // Note: We use the API keys loaded from the environment/config
@@ -91,22 +99,57 @@ const COMPANY_CONTEXT_TERMS = [
   "details",
 ];
 
+const COMPANY_CONTEXT_ARABIC_TERMS = [
+  "اسم",
+  "مجال",
+  "قطاع",
+  "نشاط",
+  "عنوان",
+  "مقر",
+  "موقع",
+  "تليفون",
+  "هاتف",
+  "موبايل",
+  "ايميل",
+  "بريد",
+  "ساعات العمل",
+  "مواعيد العمل",
+  "اوقات العمل",
+  "سجل",
+  "ضريبي",
+  "لوجو",
+  "شعار",
+  "معلومات",
+  "بيانات",
+  "تفاصيل",
+];
+
 export const messageRequestsCompanyContext = (message = "") => {
+  if (!message) return false;
   const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  const normAr = normalizeArabic(message);
 
   if (!normalized) {
     return false;
   }
 
-  const mentionsCompany =
+  const mentionsCompanyEn =
     /\b(company|employer|organization|organisation)\b/.test(normalized);
-  if (!mentionsCompany) {
+  const mentionsCompanyAr =
+    /(?:^|\s)(?:الشركة|شركتنا|المؤسسة|المؤسسه|جهة العمل|جهه العمل)(?:$|\s|[.,?!])/i.test(
+      normAr,
+    );
+
+  if (!mentionsCompanyEn && !mentionsCompanyAr) {
     return false;
   }
 
   if (
     /\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(
       normalized,
+    ) ||
+    /(?:اسم\s+الشركة|اسم\s+شركتنا|الشركة\s+اسمها\s+ايه|ايه\s+اسم\s+الشركة)/i.test(
+      normAr,
     )
   ) {
     return true;
@@ -115,19 +158,26 @@ export const messageRequestsCompanyContext = (message = "") => {
   if (
     /\b(all|available)\s+company\s+(information|info|details)\b/.test(
       normalized,
+    ) ||
+    /(?:معلومات\s+الشركة|بيانات\s+الشركة|كل\s+بيانات\s+الشركة|تفاصيل\s+الشركة)/i.test(
+      normAr,
     )
   ) {
     return true;
   }
 
   if (
-    /\b(company\s+policy|leave\s+policy|hr\s+policy)\b/.test(normalized) &&
+    (/\b(company\s+policy|leave\s+policy|hr\s+policy)\b/.test(normalized) ||
+      /(?:سياسة\s+الشركة|لائحة\s+الشركة|لائحه\s+الشركة)/i.test(normAr)) &&
     !/\b(available|exists|handbook)\b/.test(normalized)
   ) {
     return false;
   }
 
-  return COMPANY_CONTEXT_TERMS.some((term) => normalized.includes(term));
+  return (
+    COMPANY_CONTEXT_TERMS.some((term) => normalized.includes(term)) ||
+    COMPANY_CONTEXT_ARABIC_TERMS.some((term) => normAr.includes(term))
+  );
 };
 
 const normalizeConversationMessages = (
@@ -188,35 +238,38 @@ const formatConversationHistoryForDebug = (messages = []) =>
     : "No previous conversation messages.";
 
 const INTENT_SYSTEM_PROMPT = `Analyze the current user message and determine their intent, required capabilities, and required context data sources.
-Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, and follow-up questions.
+Use the prior conversation messages to resolve context-dependent requests such as summaries, translations, shorter rewrites, continuations, follow-up questions, and pronoun references.
 Return only the structured JSON required by the schema.
 
 Intent values:
-- "calculation": mathematical or numerical computation (salary, totals, leave days math)
-- "document_generation": creating a document or certificate (employment cert, salary slip, etc.)
-- "employee_question": questions about the user's own profile, job title, department, salary, leave balance, employment status
+- "calculation": mathematical or numerical computation (salary, totals, end of service gratuity math, leave days math)
+- "document_generation": creating or drafting an HR document/certificate (employment contract, warning letter, termination letter, etc.)
+- "employee_question": questions about an employee's profile, job title, department, salary, leave balance, employment status (for self or targeted employee)
 - "company_question": questions about the company itself — name, industry, address, phone, email, working hours, registration date — anything about the company as an entity
 - "company_policy_question": questions about company HR policies, rules, procedures found in the policy handbook
-- "labor_law_question": questions about Egyptian labor law or legal regulations
+- "labor_law_question": questions about Egyptian labor law or legal regulations (Law No. 12 of 2003)
 - "create_leave_draft": user wants to create or initiate a leave request
 - "submit_leave_draft": user wants to confirm/submit a pending leave draft
 - "cancel_leave_draft": user wants to cancel a leave request
 - "general_conversation": greetings, follow-ups, clarifications, or any other request
-- "out_of_scope": clearly unrelated requests like cooking, programming unrelated to HR, weather, general jokes.
+- "out_of_scope": clearly unrelated requests like cooking, general programming, weather, general jokes.
 
 requiresContext values (include ALL that apply):
-- "employee": include when the answer requires knowing the user's profile – name, job title, department, salary, leave balance, employment status
+- "employee": include when the answer requires knowing the employee's profile – name, job title, department, salary, leave balance, employment status
 - "company": include when the answer requires knowing company details — company name, industry, address, working hours, contact info, registration date, or whether a policy handbook exists. ALWAYS include "company" for "company_question" intent.
 - "rag": include when the answer requires searching the company policy documents or handbook
 
-Examples:
-- "What is the name of my company?" → intent: "company_question", requiresContext: ["company"]
-- "What industry does my company operate in?" → intent: "company_question", requiresContext: ["company"]
-- "What are my company's working hours?" → intent: "company_question", requiresContext: ["company"]
-- "What is my job title?" → intent: "employee_question", requiresContext: ["employee"]
-- "What is my salary?" → intent: "employee_question", requiresContext: ["employee"]
-- "How many annual leave days do I have left?" → intent: "employee_question", requiresContext: ["employee"]
-- "What is the leave policy?" → intent: "company_policy_question", requiresContext: ["rag"]`;
+Bilingual Examples (English & Arabic):
+- "What is the name of my company?" / "ايه اسم الشركة؟" → intent: "company_question", requiresContext: ["company"]
+- "What industry does my company operate in?" / "الشركة شغالة في ايه؟" → intent: "company_question", requiresContext: ["company"]
+- "What are my company's working hours?" / "مواعيد العمل بالشركة ايه؟" → intent: "company_question", requiresContext: ["company"]
+- "What is my job title?" / "ايه وظيفتي؟" → intent: "employee_question", requiresContext: ["employee"]
+- "What is my salary?" / "مرتبي كام؟" → intent: "employee_question", requiresContext: ["employee"]
+- "How many annual leave days do I have left?" / "عندي كام يوم إجازة؟" → intent: "employee_question", requiresContext: ["employee"]
+- "What do you know about Farida?" / "تعرف ايه عن فريدة" / "ماذا تعرف عن نورهان" → intent: "employee_question", requiresContext: ["employee"]
+- "What is the leave policy?" / "ايه سياسة الشركة بخصوص الإجازات؟" → intent: "company_policy_question", requiresCapabilities: ["company_policy"], requiresContext: ["rag"]
+- "What are the annual leave rules under Egyptian Labor Law?" / "ما هي قواعد الإجازة السنوية في قانون العمل المصري؟" → intent: "labor_law_question", requiresCapabilities: ["labor_law"], requiresContext: ["rag"]
+- "create a contract for Farida" / "اعملي عقد عمل لفريدة" / "اعملي عقد ليها" → intent: "document_generation", requiresCapabilities: ["document_generation"], requiresContext: ["employee"]`;
 
 const buildIntentMessages = (message, conversationMessages = []) => [
   {
@@ -414,40 +467,114 @@ const normalizeIntent = (intent) => {
   };
 };
 
-export const messageRequestsEmployeeContext = (message = "", userContext = {}) => {
-  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
-  if (!normalized) return false;
+export const messageRequestsDocumentGeneration = (message = "") => {
+  if (!message) return false;
+  const normalized = message.toLowerCase().trim();
+  const normAr = normalizeArabic(message);
 
-  const mentionsEmployeePronouns =
-    /\b(her|him|she|he|his|hers)\b/.test(normalized) ||
-    /\b(لها|ليها|عنه|عنها|مرتبها|راتبها|بياناتها|عن الموظفة|عن الموظف|راتبه|مرتبه|رصيد اجازاته|رصيد اجازاتها|اجازاتها|اجازاته)\b/.test(normalized);
+  const englishDocPattern =
+    /\b(?:create|generate|draft|make|prepare|write)\s+(?:an?\s+)?(?:employment\s+)?(?:contract|warning\s+letter|termination\s+letter)\b/i.test(
+      normalized,
+    ) ||
+    /\b(?:contract|warning\s+letter|termination\s+letter)\s+(?:for|to)\b/i.test(
+      normalized,
+    );
+
+  const arabicDocPattern =
+    /(?:اعمل|اعملي|انشئ|أنشئ|اكتب|اكتبي|جهز|جهزي|صيغ|صيغي|عايز\s+اعمل|عايز\s+انشئ|نعمل)\s+(?:عقد|عقد\s+عمل|عقد\s+توظيف|خطاب\s+انذار|خطاب\s+إنذار|انذار|إنذار|خطاب\s+انهاء\s+خدمة|خطاب\s+إنهاء\s+خدمة|انهاء\s+خدمة|إنهاء\s+خدمة|فصل)/iu.test(
+      normAr,
+    ) ||
+    /(?:عقد\s+عمل|عقد\s+توظيف|خطاب\s+انذار|خطاب\s+إنذار|خطاب\s+انهاء\s+خدمة|خطاب\s+إنهاء\s+خدمة)\s+(?:لـ?|للموظف|للموظفه|ليها|ليه|له|لها)/iu.test(
+      normAr,
+    );
+
+  return englishDocPattern || arabicDocPattern;
+};
+
+export const messageRequestsLaborLaw = (message = "") => {
+  if (!message) return false;
+  const normalized = message.toLowerCase().trim();
+  const normAr = normalizeArabic(message);
+
+  const englishLawPattern =
+    /\b(?:labor\s+law|labour\s+law|egyptian\s+labor\s+law|egyptian\s+law|law\s+12|statutory\s+leave|under\s+(?:the\s+)?law|labor\s+regulation)\b/i.test(
+      normalized,
+    );
+
+  const arabicLawPattern =
+    /(?:قانون\s+العمل|قانون\s+العمل\s+المصري|القانون\s+المصري|قانون\s+12|حسب\s+القانون|في\s+قانون\s+العمل|حقوق\s+الموظف\s+في\s+قانون|مكاف[اأ]?[ةه]\s+نهاي[ةه]\s+الخدم[ةه]|فتر[ةه]\s+الاخطار|قوانين\s+الاجازات|قواعد\s+الاجاز[ةه]\s+السنوي[ةه]|حقوق\s+الموظف\s+في\s+الاجاز[ةه])/iu.test(
+      normAr,
+    );
+
+  return englishLawPattern || arabicLawPattern;
+};
+
+export const messageRequestsCompanyPolicy = (message = "") => {
+  if (!message) return false;
+  const normalized = message.toLowerCase().trim();
+  const normAr = normalizeArabic(message);
+
+  const englishPolicyPattern =
+    /\b(?:company(?:'s)?(?:\s+\w+)?\s+policy|leave\s+policy|hr\s+policy|internal\s+policy|company\s+handbook|company\s+rules|handbook\s+say|policy\s+on)\b/i.test(
+      normalized,
+    );
+
+  const arabicPolicyPattern =
+    /(?:سياس[ةه]\s+(?:الشرك[ةه]|الاجازات|العمل)|لائح[ةه]\s+الشرك[ةه]|دليل\s+الموظف|قواعد\s+الشرك[ةه]|الشرك[ةه]\s+بتقول\s+ايه|حسب\s+سياس[ةه]|هل\s+سياس[ةه]|سياس[ةه].*الشرك[ةه]|الشرك[ةه].*سياس[ةه])/iu.test(
+      normAr,
+    );
+
+  return englishPolicyPattern || arabicPolicyPattern;
+};
+
+export const messageRequestsEmployeeContext = (message = "", userContext = {}) => {
+  if (!message) return false;
+  const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  const normAr = normalizeArabic(message);
+
+  if (hasEmployeePronounOrReference(message)) {
+    return true;
+  }
 
   const mentionsTargetResolution =
-    /\b(what\s+do\s+you\s+know\s+about|tell\s+me\s+about|who\s+is|info\s+about|details\s+about|profile\s+of)\b/i.test(normalized) ||
-    /\b(عايز\s+اعرف\s+عن|قولي\s+عن|بيانات\s+الموظف|معلومات\s+عن|مين\s+هو|مين\s+هي)\b/.test(normalized);
+    /\b(what\s+do\s+you\s+know\s+about|tell\s+me\s+about|who\s+is|info\s+about|details\s+about|profile\s+of|employee\s+details|salary\s+of|leave\s+balance\s+of)\b/i.test(
+      normalized,
+    ) ||
+    /(?:تعرف\s+(?:ايه\s+)?عن|ماذا\s+تعرف\s+عن|قولي\s+(?:معلومات\s+)?عن|عايز\s+معلومات\s+عن|هات\s+بيانات|بيانات\s+الموظف|معلومات\s+الموظف|معلومات\s+عن|مين\s+هو|مين\s+هي|مرتب|راتب|رصيد\s+اجازات|شغال[ةه]?\s+ايه)/iu.test(
+      normAr,
+    );
 
   if (userContext?.targetEmployeeName) {
     const targetParts = userContext.targetEmployeeName
       .toLowerCase()
       .split(/\s+/)
-      .filter((p) => p.length >= 3);
-    if (targetParts.some((part) => normalized.includes(part))) {
+      .filter((p) => p.length >= 2);
+    if (
+      targetParts.some(
+        (part) =>
+          normalized.includes(part) ||
+          normAr.includes(normalizeArabic(part)),
+      )
+    ) {
       return true;
     }
   }
 
-  if (userContext?.targetEmployeeId && (mentionsEmployeePronouns || mentionsTargetResolution)) {
+  if (
+    userContext?.targetEmployeeId &&
+    (hasEmployeePronounOrReference(message) || mentionsTargetResolution)
+  ) {
     return true;
   }
 
-  if (mentionsEmployeePronouns) {
-    return true;
-  }
-
-  return false;
+  return mentionsTargetResolution;
 };
 
-export const reinforceIntentWithDeterministicContext = (message, intent, userContext = {}) => {
+export const reinforceIntentWithDeterministicContext = (
+  message,
+  intent,
+  userContext = {},
+) => {
   let normalizedIntent = normalizeIntent(intent);
 
   if (messageRequestsCompanyContext(message)) {
@@ -469,13 +596,97 @@ export const reinforceIntentWithDeterministicContext = (message, intent, userCon
     }
   }
 
-  if (messageRequestsEmployeeContext(message, userContext)) {
+  if (messageRequestsDocumentGeneration(message)) {
+    if (
+      normalizedIntent.intent !== DOCUMENT_GENERATION_CAPABILITY ||
+      !normalizedIntent.requiresCapabilities.includes(
+        DOCUMENT_GENERATION_CAPABILITY,
+      )
+    ) {
+      logger.warn(
+        `[Orchestrator] Reinforcing document_generation intent for explicit document generation request. ` +
+          `Original intent=${normalizedIntent.intent || "unknown"}`,
+      );
+      normalizedIntent = {
+        ...normalizedIntent,
+        intent: DOCUMENT_GENERATION_CAPABILITY,
+        requiresCapabilities: [
+          ...new Set([
+            ...(normalizedIntent.requiresCapabilities || []),
+            DOCUMENT_GENERATION_CAPABILITY,
+          ]),
+        ],
+        requiresContext: [
+          ...new Set([...(normalizedIntent.requiresContext || []), "employee"]),
+        ],
+      };
+    }
+  }
+
+  if (
+    messageRequestsLaborLaw(message) &&
+    normalizedIntent.intent !== DOCUMENT_GENERATION_CAPABILITY
+  ) {
+    if (
+      normalizedIntent.intent !== "labor_law_question" ||
+      !normalizedIntent.requiresCapabilities.includes(LABOR_LAW_CAPABILITY)
+    ) {
+      logger.warn(
+        `[Orchestrator] Reinforcing labor_law_question intent for explicit labor law request. ` +
+          `Original intent=${normalizedIntent.intent || "unknown"}`,
+      );
+      normalizedIntent = {
+        ...normalizedIntent,
+        intent: "labor_law_question",
+        requiresCapabilities: [
+          ...new Set([
+            ...(normalizedIntent.requiresCapabilities || []),
+            LABOR_LAW_CAPABILITY,
+          ]),
+        ],
+      };
+    }
+  }
+
+  if (
+    messageRequestsCompanyPolicy(message) &&
+    normalizedIntent.intent !== DOCUMENT_GENERATION_CAPABILITY
+  ) {
+    if (
+      normalizedIntent.intent !== "company_policy_question" ||
+      !normalizedIntent.requiresCapabilities.includes(COMPANY_POLICY_CAPABILITY)
+    ) {
+      logger.warn(
+        `[Orchestrator] Reinforcing company_policy_question intent for explicit company policy request. ` +
+          `Original intent=${normalizedIntent.intent || "unknown"}`,
+      );
+      normalizedIntent = {
+        ...normalizedIntent,
+        intent: "company_policy_question",
+        requiresCapabilities: [
+          ...new Set([
+            ...(normalizedIntent.requiresCapabilities || []),
+            COMPANY_POLICY_CAPABILITY,
+          ]),
+        ],
+      };
+    }
+  }
+
+  if (
+    messageRequestsEmployeeContext(message, userContext) &&
+    normalizedIntent.intent !== DOCUMENT_GENERATION_CAPABILITY &&
+    normalizedIntent.intent !== "out_of_scope"
+  ) {
     if (!normalizedIntent.requiresContext.includes("employee")) {
       logger.warn(
         `[Orchestrator] Reinforcing employee context for employee inquiry. ` +
           `Original intent=${normalizedIntent.intent || "unknown"}`,
       );
-      const nextIntent = normalizedIntent.intent === "general_conversation" ? "employee_question" : normalizedIntent.intent;
+      const nextIntent =
+        normalizedIntent.intent === "general_conversation"
+          ? "employee_question"
+          : normalizedIntent.intent;
       normalizedIntent = {
         ...normalizedIntent,
         intent: nextIntent,
@@ -491,39 +702,61 @@ export const reinforceIntentWithDeterministicContext = (message, intent, userCon
 
 const getRequestedCompanyFields = (message = "") => {
   const normalized = message.toLowerCase().replace(/\s+/g, " ").trim();
+  const normAr = normalizeArabic(message);
   const fields = [];
 
   if (
     /\b(company(?:'s|’s)?\s+name|name\s+of\s+(my|our|the)\s+company)\b/.test(
       normalized,
+    ) ||
+    /(?:اسم\s+الشركة|اسم\s+شركتنا|الشركة\s+اسمها\s+ايه|ايه\s+اسم\s+الشركة)/i.test(
+      normAr,
     )
   ) {
     fields.push("companyName");
   }
 
-  if (/\b(industry|sector|operate|business)\b/.test(normalized)) {
+  if (
+    /\b(industry|sector|operate|business)\b/.test(normalized) ||
+    /(?:مجال|قطاع|نشاط|شغالة\s+في\s+ايه|شغاله\s+في\s+ايه)/i.test(normAr)
+  ) {
     fields.push("industry");
   }
 
-  if (/\b(working hour|work hour|office hour|hours)\b/.test(normalized)) {
+  if (
+    /\b(working hour|work hour|office hour|hours)\b/.test(normalized) ||
+    /(?:ساعات\s+العمل|مواعيد\s+العمل|اوقات\s+العمل)/i.test(normAr)
+  ) {
     fields.push("workingHours");
   }
 
-  if (/\b(address|location)\b/.test(normalized)) {
+  if (
+    /\b(address|location)\b/.test(normalized) ||
+    /(?:عنوان|مقر|موقع)/i.test(normAr)
+  ) {
     fields.push("address");
   }
 
-  if (/\b(phone|contact number)\b/.test(normalized)) {
+  if (
+    /\b(phone|contact number)\b/.test(normalized) ||
+    /(?:تليفون|هاتف|موبايل|رقم\s+التواصل)/i.test(normAr)
+  ) {
     fields.push("phoneNumber");
   }
 
-  if (/\b(email)\b/.test(normalized)) {
+  if (
+    /\b(email)\b/.test(normalized) ||
+    /(?:ايميل|بريد|البريد\s+الالكتروني)/i.test(normAr)
+  ) {
     fields.push("email");
   }
 
   if (
     /\b(all|available)\s+company\s+(information|info|details)\b/.test(
       normalized,
+    ) ||
+    /(?:معلومات\s+الشركة|بيانات\s+الشركة|كل\s+بيانات\s+الشركة|تفاصيل\s+الشركة)/i.test(
+      normAr,
     )
   ) {
     return [
@@ -566,23 +799,33 @@ const buildTrustedCompanyAnswer = (message, company) => {
     return null;
   }
 
+  const isAr = containsArabic(message);
+
   if (requestedFields.length === 1 && requestedFields[0] === "companyName") {
-    return `Your company name is ${company.companyName}.`;
+    return isAr
+      ? `اسم الشركة هو ${company.companyName}.`
+      : `Your company name is ${company.companyName}.`;
   }
 
   if (requestedFields.length === 1 && requestedFields[0] === "industry") {
-    return `Your company operates in the ${company.industry} industry.`;
+    return isAr
+      ? `تعمل الشركة في قطاع ${company.industry}.`
+      : `Your company operates in the ${company.industry} industry.`;
   }
 
   if (requestedFields.length === 1 && requestedFields[0] === "workingHours") {
-    return `Your company's working hours are ${company.workingHours}.`;
+    return isAr
+      ? `مواعيد العمل بالشركة هي ${company.workingHours}.`
+      : `Your company's working hours are ${company.workingHours}.`;
   }
 
   const details = requestedFields
     .map((field) => `${COMPANY_FIELD_LABELS[field]}: ${company[field]}`)
     .join("\n");
 
-  return `Here is the company information available to me:\n${details}`;
+  return isAr
+    ? `إليك بيانات الشركة المتوفرة:\n${details}`
+    : `Here is the company information available to me:\n${details}`;
 };
 
 const responseContradictsTrustedCompanyContext = (
@@ -743,10 +986,19 @@ export const handleChat = async ({
       conversationMessages,
     );
 
+    // 1b. Resolve Target Employee (Arabic/English name extraction, pronoun resolution, company-scoped search)
+    const employeeResolution = await resolveTargetEmployee({
+      message: orchContext.message,
+      userContext: orchContext.userContext,
+      conversationId: orchContext.conversationId,
+    });
+    orchContext.userContext = employeeResolution.userContext;
+
     // 2. Determine Intent & Required Capabilities
     orchContext.intent = reinforceIntentWithDeterministicContext(
       message,
       await determineIntent(message, orchContext.conversationMessages),
+      orchContext.userContext,
     );
     orchContext.intent = enrichLeaveIntentWithDeterministicContext(
       message,

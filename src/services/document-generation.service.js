@@ -12,6 +12,7 @@ import {
   SourceSchema,
 } from "../contracts/index.js";
 import { logger } from "../shared/logger.js";
+import { normalizeArabic, containsArabic } from "../shared/arabic-utils.js";
 
 const CONTRACT_DOCUMENT_TYPE = "Contract";
 const WARNING_DOCUMENT_TYPE = "Warning_Letter";
@@ -23,30 +24,57 @@ export const SUPPORTED_DOCUMENT_TYPES = Object.freeze([
     document_type: CONTRACT_DOCUMENT_TYPE,
     label: "Employment Contract",
     title_prefix: "Employment Contract",
-    aliases: ["contract", "employment contract", "employment_contract"],
+    aliases: [
+      "contract",
+      "employment contract",
+      "employment_contract",
+      "عقد",
+      "عقد عمل",
+      "عقد توظيف",
+      "عقد العمل",
+    ],
   },
   {
     document_type: WARNING_DOCUMENT_TYPE,
     label: "Warning Letter",
     title_prefix: "Warning Letter",
-    aliases: ["warning", "warning letter", "warning_letter"],
+    aliases: [
+      "warning",
+      "warning letter",
+      "warning_letter",
+      "انذار",
+      "إنذار",
+      "خطاب انذار",
+      "خطاب إنذار",
+      "جواب انذار",
+    ],
   },
   {
     document_type: TERMINATION_DOCUMENT_TYPE,
     label: "Termination Letter",
     title_prefix: "Termination Letter",
-    aliases: ["termination", "termination letter", "termination_letter"],
+    aliases: [
+      "termination",
+      "termination letter",
+      "termination_letter",
+      "انهاء خدمة",
+      "إنهاء خدمة",
+      "خطاب انهاء خدمة",
+      "خطاب إنهاء خدمة",
+      "فصل",
+      "خطاب فصل",
+    ],
   },
 ]);
 
 const UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS = Object.freeze([
   {
     document_type: "NDA",
-    keyword: /\b(nda|non[- ]disclosure|non disclosure)\b/i,
+    keyword: /\b(nda|non[- ]disclosure|non disclosure)\b|عدم\s+افصاح|عدم\s+إفصاح|سرية\s+المعلومات/iu,
   },
   {
     document_type: "Certificate",
-    keyword: /\b(certificate|experience letter|recommendation letter)\b/i,
+    keyword: /\b(certificate|experience letter|recommendation letter)\b|شهادة\s+خبرة|شهادة\s+خبره|خطاب\s+توصية/iu,
   },
 ]);
 
@@ -110,6 +138,7 @@ const COMMON_FIELD_PATTERNS = Object.freeze({
   employee_id: [
     /\bemployee\s*(?:id|number)\s*(?:is|=|:)\s*([A-Za-z0-9_-]+)/i,
     /\bemp(?:loyee)?\s*#\s*([A-Za-z0-9_-]+)/i,
+    /(?:رقم\s+الموظف|كود\s+الموظف)\s*(?:هو|=|:)\s*([A-Za-z0-9_-]+)/iu,
   ],
   employee_name: [
     /\bemployee\s+name\s*(?:is|=|:)\s*([^,.;\n]+)/i,
@@ -118,21 +147,30 @@ const COMMON_FIELD_PATTERNS = Object.freeze({
     // greedily consume the rest of the sentence and incorrectly satisfy the
     // employee_name requirement.
     /\bfor\s+([^,.;\n]+?)(?=\s+(?:as|with|starting|start|salary)\b|[,.;])/i,
+    /(?:اسم\s+الموظف|اسم\s+الموظفة|الموظف|الموظفة)\s*(?:هو|هي|=|:)\s*([^,.;\n]+)/iu,
+    /(?:لـ|للموظف|للموظفة)\s+([^,.;\n]+?)(?=\s+(?:بوظيفة|بمرتب|براتب|تاريخ|من|اعتبارا)|[,.;]|$)/iu,
   ],
   job_title: [
     /\b(?:job\s*title|position|role)\s*(?:is|=|:)\s*([^,.;\n]+)/i,
     /\bas\s+(?:a\s+|an\s+)?([^,.;\n]+?)(?=\s+(?:with\s+salary|salary|starting|start(?:\s+date)?|from)|[,.;]|$)/i,
+    /(?:المسمى\s+الوظيفي|الوظيفة|المنصب|بوظيفة|كـ)\s*(?:هو|هي|=|:)?\s*([^,.;\n]+?)(?=\s+(?:بمرتب|براتب|تاريخ|من|ساعات)|[,.;]|$)/iu,
   ],
   salary: [
     /\b(?:salary|wage|compensation)\s*(?:is|=|:)?\s*(?:egp|e\.g\.p\.|\$)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)/i,
+    /(?:المرتب|الراتب|بمرتب|براتب|أجر|اجر)\s*(?:هو|=|:)?\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*(?:جنيه|ج\.م|egp)?/iu,
   ],
   start_date: [
     /\b(?:start(?:ing)?(?:\s+date)?|starts(?:\s+on)?|from)\s*(?:is|=|:|on)?\s*([A-Za-z]+\s+\d{1,2}(?:,\s*\d{4})?|\d{1,2}\s+[A-Za-z]+(?:\s+\d{4})?|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4})/i,
+    /(?:تاريخ\s+البدء|تاريخ\s+التعيين|يبدأ\s+من|اعتبارا\s+من|من\s+تاريخ)\s*(?:هو|=|:)?\s*(\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2}\/\d{2,4}|\d{1,2}\s+[^\s,.;]+\s+\d{4})/iu,
   ],
   working_hours: [
     /\b(?:working\s+hours|work\s+hours|hours)\s*(?:are|is|=|:)\s*([^,.;\n]+)/i,
+    /(?:ساعات\s+العمل|مواعيد\s+العمل)\s*(?:هي|=|:)\s*([^,.;\n]+)/iu,
   ],
-  document_type: [/\bdocument\s*type\s*(?:is|=|:)\s*([^,.;\n]+)/i],
+  document_type: [
+    /\bdocument\s*type\s*(?:is|=|:)\s*([^,.;\n]+)/i,
+    /(?:نوع\s+المستند|نوع\s+الوثيقة|نوع\s+العقد)\s*(?:هو|=|:)\s*([^,.;\n]+)/iu,
+  ],
 });
 
 const MONTHS = Object.freeze({
@@ -385,20 +423,33 @@ export function resolveDocumentTypeFromMessages(messages, aiContext = {}) {
     if (explicit) return explicit;
   }
 
+  const normArCombined = normalizeArabic(combinedText);
+
   for (const type of SUPPORTED_DOCUMENT_TYPES) {
     if (
-      type.aliases.some((alias) =>
-        new RegExp(`\\b${escapeRegex(alias.replace(/_/g, " "))}\\b`, "i").test(
-          combinedText,
-        ),
-      )
+      type.aliases.some((alias) => {
+        if (containsArabic(alias)) {
+          const normAlias = normalizeArabic(alias.replace(/_/g, " "));
+          return (
+            normArCombined.includes(normAlias) ||
+            new RegExp(
+              `(?:^|\\s|[.,!?;])${escapeRegex(normAlias)}(?:$|\\s|[.,!?;])`,
+              "iu",
+            ).test(normArCombined)
+          );
+        }
+        return new RegExp(
+          `\\b${escapeRegex(alias.replace(/_/g, " "))}\\b`,
+          "i",
+        ).test(combinedText);
+      })
     ) {
       return { documentType: type.document_type };
     }
   }
 
   for (const unsupported of UNSUPPORTED_DOCUMENT_TYPE_KEYWORDS) {
-    if (unsupported.keyword.test(combinedText)) {
+    if (unsupported.keyword.test(combinedText) || unsupported.keyword.test(normArCombined)) {
       return {
         unsupported: true,
         documentType: unsupported.document_type,
