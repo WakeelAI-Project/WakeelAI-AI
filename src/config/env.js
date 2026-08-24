@@ -10,10 +10,13 @@ const envSchema = z.object({
     .default("3000"),
   MONGODB_URI: z.string().min(1, "MONGODB_URI is required"),
   MONGODB_DB_NAME: z.string().min(1, "MONGODB_DB_NAME is required"),
-  LLM_PROVIDER: z.enum(["iti", "groq"]).default("iti"),
+  LLM_PROVIDER: z.enum(["iti", "groq", "google"]).default("iti"),
   LLM_API_KEY: z.string().min(1, "LLM_API_KEY is required"),
   LLM_MODEL: z.string().min(1, "LLM_MODEL is required"),
   LLM_BASE_URL: z.string().url("LLM_BASE_URL must be a valid URL").optional(),
+  GOOGLE_API_KEY: z.string().optional(),
+  GOOGLE_MODEL: z.string().optional(),
+  GOOGLE_BASE_URL: z.string().url("GOOGLE_BASE_URL must be a valid URL").optional(),
   HUGGINGFACE_API_KEY: z.string().min(1, "HUGGINGFACE_API_KEY is required"),
   EMBEDDING_PROVIDER: z.string().default("huggingface"),
   EMBEDDING_MODEL: z.string().min(1, "EMBEDDING_MODEL is required"),
@@ -116,5 +119,14 @@ export const llmConfig = {
   modelName: config.LLM_MODEL,
   ...(config.LLM_BASE_URL && {
     baseURL: config.LLM_BASE_URL,
+  }),
+  ...(config.GOOGLE_API_KEY && {
+    googleApiKey: config.GOOGLE_API_KEY,
+  }),
+  ...(config.GOOGLE_MODEL && {
+    googleModel: config.GOOGLE_MODEL,
+  }),
+  ...(config.GOOGLE_BASE_URL && {
+    googleBaseURL: config.GOOGLE_BASE_URL,
   }),
 };

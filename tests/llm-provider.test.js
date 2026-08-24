@@ -52,4 +52,19 @@ describe("LLM provider selection", () => {
     expect(llm.constructor.name).toBe("GroqLanguageModel");
     expect(llm.baseURL).toBe("https://api.groq.com/openai/v1");
   });
+
+  it("selects the Google Gemini adapter when LLM_PROVIDER=google", async () => {
+    process.env = validEnv({
+      LLM_PROVIDER: "google",
+      GOOGLE_API_KEY: "google-test-key",
+      GOOGLE_MODEL: "gemini-2.5-flash",
+    });
+    const { createLLM } = await import("../src/llm/llm-provider.js");
+    const llm = createLLM();
+
+    expect(llm.constructor.name).toBe("GoogleGeminiLanguageModel");
+    expect(llm.apiKey).toBe("google-test-key");
+    expect(llm.modelName).toBe("gemini-2.5-flash");
+    expect(llm.baseURL).toBe("https://generativelanguage.googleapis.com/v1beta");
+  });
 });
