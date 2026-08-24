@@ -31,8 +31,10 @@ jest.unstable_mockModule("../src/integrations/wakeel/wakeel-client.js", () => ({
   ),
 }));
 
+const mockEnsureConversation = jest.fn().mockResolvedValue();
+
 jest.unstable_mockModule("../src/services/chat-history.service.js", () => ({
-  ensureConversation: jest.fn().mockResolvedValue(),
+  ensureConversation: mockEnsureConversation,
   getRecentHistoryForContext: jest.fn().mockResolvedValue([]),
   persistUserMessage: jest.fn().mockResolvedValue(),
   persistAssistantMessage: jest.fn().mockResolvedValue(),
@@ -155,8 +157,6 @@ describe("Conversation ownership — upsertConversation scope", () => {
   // to prove the three-field ownership scope is intact.
 
   it("uses conversationId + userId + companyId as the upsert filter", async () => {
-    // We import the mock of the chat-history service to inspect the call
-    const chatHistoryService = await import("../src/services/chat-history.service.js");
     jest.clearAllMocks();
 
     const convId = VALID_UUID;
@@ -166,7 +166,7 @@ describe("Conversation ownership — upsertConversation scope", () => {
       .send(basePayload(convId));
 
     // ensureConversation must be called with the full owner triple
-    expect(chatHistoryService.ensureConversation).toHaveBeenCalledWith(
+    expect(mockEnsureConversation).toHaveBeenCalledWith(
       convId,
       expect.objectContaining({
         userId: "user-a",
@@ -178,7 +178,6 @@ describe("Conversation ownership — upsertConversation scope", () => {
 
   it("two different owners can independently use the same conversationId", async () => {
     // Simulate User A + Company A
-    const chatHistoryService = await import("../src/services/chat-history.service.js");
     jest.clearAllMocks();
 
     const sharedConvId = VALID_UUID;
@@ -202,7 +201,7 @@ describe("Conversation ownership — upsertConversation scope", () => {
       });
 
     // ensureConversation must have been called twice with different owner scopes
-    const calls = chatHistoryService.ensureConversation.mock.calls;
+    const calls = mockEnsureConversation.mock.calls;
     expect(calls).toHaveLength(2);
 
     // First call: Owner A
