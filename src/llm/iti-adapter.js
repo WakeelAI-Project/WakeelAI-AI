@@ -34,6 +34,10 @@ export class ITILanguageModel {
     this.apiKey = options.apiKey || config.LLM_API_KEY;
     this.temperature = options.temperature !== undefined ? options.temperature : 0;
     this._schema = options._schema || null;
+    // Per-request fetch timeout in milliseconds. When the ITI gateway is slow or
+    // stalled, this AbortController fires and rejects the fetch so the retry/
+    // error path can handle it instead of hanging forever.
+    this.requestTimeoutMs = options.requestTimeoutMs ?? config.LLM_REQUEST_TIMEOUT_MS ?? 60000;
   }
 
   /**
@@ -49,6 +53,7 @@ export class ITILanguageModel {
       baseURL: this.baseURL,
       apiKey: this.apiKey,
       temperature: this.temperature,
+      requestTimeoutMs: this.requestTimeoutMs,
       _schema: schema,
     });
   }
@@ -82,7 +87,17 @@ export class ITILanguageModel {
 
     while (attempt <= maxRetries) {
       const startTime = Date.now();
+      // A fresh AbortController is created for every attempt so that a timed-
+      // out or aborted attempt does not poison the next retry attempt's signal.
+      const controller = new AbortController();
+      const timeoutHandle = setTimeout(
+        () => controller.abort(new Error(`ITI Gateway request timed out after ${this.requestTimeoutMs}ms`)),
+        this.requestTimeoutMs,
+      );
       try {
+        logger.info(
+          `[ITILanguageModel] Attempt ${attempt + 1}/${maxRetries + 1} — model=${this.modelName} timeout=${this.requestTimeoutMs}ms`,
+        );
         const response = await fetch(url, {
           method: "POST",
           headers: {
@@ -90,7 +105,9 @@ export class ITILanguageModel {
             "Content-Type": "application/json",
           },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
+        clearTimeout(timeoutHandle);
 
         if (!response.ok) {
           const errText = await response.text().catch(() => "");
@@ -131,6 +148,7 @@ export class ITILanguageModel {
           const delayMs = Math.min(retryAfterMs ?? backoffDelay, 5000);
 
           logger.warn(`[ITILanguageModel] Retry ${attempt}/${maxRetries} after ${Math.round(delayMs)}ms due to HTTP ${status}`);
+          clearTimeout(timeoutHandle);
           await new Promise((resolve) => setTimeout(resolve, delayMs));
           continue;
         }
@@ -144,6 +162,18 @@ export class ITILanguageModel {
 
         return new AIMessage(rawText);
       } catch (e) {
+        clearTimeout(timeoutHandle);
+
+        // Distinguish a gateway timeout/abort from other errors for clearer logs.
+        const isAbort = e.name === "AbortError" || controller.signal.aborted;
+        if (isAbort) {
+          e.code = "LLM_TIMEOUT";
+          logger.error(
+            `[ITILanguageModel] Request timed out after ${this.requestTimeoutMs}ms on attempt ${attempt + 1}/${maxRetries + 1}`,
+            { url, model: this.modelName, durationMs: Date.now() - startTime, attempt },
+          );
+        }
+
         if (e.code === "PAYLOAD_TOO_LARGE" || e.code === "RATE_LIMIT_EXCEEDED" || attempt >= maxRetries) {
           logger.error("[ITILanguageModel] Request failed fatally", {
             provider: "ITI Gateway",

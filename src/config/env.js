@@ -55,6 +55,16 @@ const envSchema = z.object({
   INITIAL_LABOR_LAW_SOURCE_PATH: z
     .string()
     .min(1, "INITIAL_LABOR_LAW_SOURCE_PATH is required"),
+  // Maximum time (ms) to wait for a single LLM gateway HTTP request before
+  // aborting. Defaults to 60 s — generous for the ITI gateway under load.
+  LLM_REQUEST_TIMEOUT_MS: z
+    .string()
+    .transform((val) => parseInt(val, 10))
+    .refine(
+      (val) => Number.isInteger(val) && val > 0,
+      "LLM_REQUEST_TIMEOUT_MS must be a positive integer",
+    )
+    .default("60000"),
 });
 
 /**
@@ -117,6 +127,7 @@ export const llmConfig = {
   provider: config.LLM_PROVIDER || "iti",
   apiKey: config.LLM_API_KEY,
   modelName: config.LLM_MODEL,
+  requestTimeoutMs: config.LLM_REQUEST_TIMEOUT_MS ?? 60000,
   ...(config.LLM_BASE_URL && {
     baseURL: config.LLM_BASE_URL,
   }),
